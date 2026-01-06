@@ -108,6 +108,118 @@ function Toast({ message, type, onClose }) {
   return <div className={`toast toast-${type}`}>{message}</div>;
 }
 
+// 公開報名表單
+function PublicRegisterForm({ eventId, onSuccess }) {
+  const [event, setEvent] = useState(null);
+  const [form, setForm] = useState({ name: '', email: '', phone: '' });
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+
+  useEffect(() => {
+    API.getEvents().then(events => {
+      const ev = events.find(e => e.id === eventId);
+      setEvent(ev);
+      setLoading(false);
+    });
+  }, [eventId]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.name || !form.email) { alert('請填寫姓名和 Email'); return; }
+    setSubmitting(true);
+    try {
+      await API.addRegistration({ ...form, eventId });
+      setSubmitted(true);
+    } catch (err) {
+      alert('報名失敗，請稍後再試');
+    }
+    setSubmitting(false);
+  };
+
+  if (loading) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#0f0f1a' }}><div className="loading" style={{ width: '40px', height: '40px', borderColor: '#6366f1', borderTopColor: 'transparent' }}></div></div>;
+
+  if (!event || event.status !== 'active') {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#0f0f1a' }}>
+        <div className="card" style={{ maxWidth: '500px', textAlign: 'center' }}>
+          <div style={{ fontSize: '64px', marginBottom: '20px' }}>😢</div>
+          <h2 style={{ marginBottom: '16px' }}>活動不存在或已結束</h2>
+          <p style={{ color: '#64748b' }}>此報名連結已失效</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (submitted) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#0f0f1a' }}>
+        <div className="card" style={{ maxWidth: '500px', textAlign: 'center' }}>
+          <div style={{ fontSize: '64px', marginBottom: '20px' }}>🎉</div>
+          <h2 style={{ marginBottom: '16px', color: '#10b981' }}>報名成功！</h2>
+          <p style={{ color: '#94a3b8', marginBottom: '20px' }}>我們已收到您的報名，稍後會寄送確認通知。</p>
+          <div style={{ background: '#1a1a2e', borderRadius: '12px', padding: '20px', textAlign: 'left' }}>
+            <p><strong>活動：</strong>{event.title}</p>
+            <p><strong>時間：</strong>{event.date} {event.time}{event.endTime ? ' - ' + event.endTime : ''}</p>
+            <p><strong>地點：</strong>{event.location}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const spotsLeft = event.maxParticipants - (event.registrations || 0);
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#0f0f1a', padding: '20px' }}>
+      <div style={{ maxWidth: '500px', width: '100%' }}>
+        <div className="card" style={{ marginBottom: '20px', background: 'linear-gradient(135deg, #6366f1, #a855f7)', border: 'none' }}>
+          <h1 style={{ fontSize: '24px', marginBottom: '16px' }}>📝 活動報名</h1>
+          <h2 style={{ fontSize: '20px', marginBottom: '12px' }}>{event.title}</h2>
+          <p style={{ opacity: 0.9, marginBottom: '8px' }}>📅 {event.date} {event.time}{event.endTime ? ' - ' + event.endTime : ''}</p>
+          <p style={{ opacity: 0.9, marginBottom: '8px' }}>📍 {event.location}</p>
+          <p style={{ opacity: 0.9 }}>👥 剩餘名額：{spotsLeft > 0 ? spotsLeft : '已額滿'} / {event.maxParticipants}</p>
+        </div>
+        
+        {spotsLeft <= 0 ? (
+          <div className="card" style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>😢</div>
+            <p>很抱歉，此活動已額滿</p>
+          </div>
+        ) : (
+          <div className="card">
+            <h3 style={{ marginBottom: '20px' }}>填寫報名資料</h3>
+            <form onSubmit={handleSubmit}>
+              <div className="form-group">
+                <label>姓名 *</label>
+                <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="請輸入您的姓名" required />
+              </div>
+              <div className="form-group">
+                <label>Email *</label>
+                <input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} placeholder="example@mail.com" required />
+              </div>
+              <div className="form-group">
+                <label>手機號碼</label>
+                <input value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="0912345678" />
+              </div>
+              <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={submitting}>
+                {submitting ? <><span className="loading"></span> 送出中...</> : '✅ 確認報名'}
+              </button>
+            </form>
+          </div>
+        )}
+        
+        {event.description && (
+          <div className="card">
+            <h3 style={{ marginBottom: '12px' }}>📖 活動說明</h3>
+            <p style={{ color: '#94a3b8', lineHeight: '1.8' }}>{event.description}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // 側邊欄
 function Sidebar({ page, setPage }) {
   const items = [
@@ -227,6 +339,7 @@ function EventsPage({ events, onRefresh, showToast }) {
                     </span>
                   </td>
                   <td>
+                    {ev.status === 'active' && <button className="btn btn-secondary btn-sm" style={{ marginRight: '8px' }} onClick={() => { navigator.clipboard.writeText(`${window.location.origin}?register=${ev.id}`); showToast('報名連結已複製！', 'success'); }}>🔗 複製連結</button>}
                     {ev.status === 'draft' && <button className="btn btn-success btn-sm" onClick={() => updateStatus(ev.id, 'active')}>發布</button>}
                     {ev.status === 'active' && <button className="btn btn-secondary btn-sm" onClick={() => updateStatus(ev.id, 'ended')}>結束</button>}
                   </td>
@@ -515,6 +628,10 @@ function App() {
   const [status, setStatus] = useState({ firebase: false, openai: false, gemini: false });
   const [toast, setToast] = useState(null);
 
+  // 檢查是否為公開報名頁面
+  const urlParams = new URLSearchParams(window.location.search);
+  const registerEventId = urlParams.get('register');
+
   const showToast = (message, type) => setToast({ message, type });
   
   const refresh = async () => {
@@ -529,6 +646,11 @@ function App() {
   };
 
   useEffect(() => { refresh(); }, []);
+
+  // 如果是公開報名頁面，顯示報名表單
+  if (registerEventId) {
+    return <PublicRegisterForm eventId={registerEventId} />;
+  }
 
   return (
     <div className="app">

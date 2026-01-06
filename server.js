@@ -246,10 +246,13 @@ function createEventsCarousel(events) {
         { type: 'text', text: ev.status === 'active' ? '進行中' : ev.status === 'draft' ? '草稿' : '已結束', size: 'xs', color: '#999999', align: 'end' }
       ], margin: 'md' }
     ], paddingAll: '12px' },
-    footer: { type: 'box', layout: 'horizontal', contents: [
-      { type: 'button', action: { type: 'message', label: '詳情', text: `活動詳情 ${ev.id}` }, style: 'primary', height: 'sm', flex: 1 },
-      { type: 'button', action: { type: 'message', label: '文宣', text: `生成文宣 ${ev.id}` }, style: 'secondary', height: 'sm', flex: 1, margin: 'sm' }
-    ], paddingAll: '10px' }
+    footer: { type: 'box', layout: 'vertical', contents: [
+      { type: 'box', layout: 'horizontal', contents: [
+        { type: 'button', action: { type: 'message', label: '詳情', text: `活動詳情 ${ev.id}` }, style: 'primary', height: 'sm', flex: 1 },
+        { type: 'button', action: { type: 'message', label: '文宣', text: `生成文宣 ${ev.id}` }, style: 'secondary', height: 'sm', flex: 1, margin: 'sm' }
+      ] },
+      ev.status === 'active' ? { type: 'button', action: { type: 'uri', label: '🔗 報名連結', uri: `${process.env.WEB_URL || 'https://workshop-bot-ut8f.onrender.com'}?register=${ev.id}` }, style: 'link', height: 'sm', margin: 'sm' } : null
+    ].filter(Boolean), paddingAll: '10px' }
   }));
   return { type: 'flex', altText: '活動列表', contents: { type: 'carousel', contents: bubbles } };
 }
@@ -328,8 +331,8 @@ function createQuickReply() {
     { type: 'action', action: { type: 'message', label: '📊 總覽', text: '總覽' } },
     { type: 'action', action: { type: 'message', label: '📅 活動', text: '活動列表' } },
     { type: 'action', action: { type: 'message', label: '📋 報名', text: '最新報名' } },
-    { type: 'action', action: { type: 'message', label: '🎨 文宣', text: '生成文宣' } },
-    { type: 'action', action: { type: 'message', label: '❓ 說明', text: '說明' } }
+    { type: 'action', action: { type: 'message', label: '🔗 連結', text: '報名連結' } },
+    { type: 'action', action: { type: 'message', label: '🎨 文宣', text: '生成文宣' } }
   ]};
 }
 
@@ -354,7 +357,8 @@ async function handleMessage(event) {
       const eventId = text.split(' ')[1];
       const ev = await getEvent(eventId);
       if (ev) {
-        const content = `📅 日期：${ev.date} ${ev.time}${ev.endTime ? ' - ' + ev.endTime : ''}\n📍 地點：${ev.location}\n👥 報名：${ev.registrations || 0}/${ev.maxParticipants}\n📨 通知：${ev.notifications || 0} 次\n🏆 證書：${ev.certificates || 0} 張\n\n狀態：${ev.status === 'active' ? '✅ 進行中' : ev.status === 'draft' ? '📝 草稿' : '🔴 已結束'}`;
+        const regLink = `${process.env.WEB_URL || 'https://workshop-bot-ut8f.onrender.com'}?register=${ev.id}`;
+        const content = `📅 日期：${ev.date} ${ev.time}${ev.endTime ? ' - ' + ev.endTime : ''}\n📍 地點：${ev.location}\n👥 報名：${ev.registrations || 0}/${ev.maxParticipants}\n📨 通知：${ev.notifications || 0} 次\n🏆 證書：${ev.certificates || 0} 張\n\n狀態：${ev.status === 'active' ? '✅ 進行中' : ev.status === 'draft' ? '📝 草稿' : '🔴 已結束'}${ev.status === 'active' ? '\n\n🔗 報名連結：\n' + regLink : ''}`;
         messages.push(createFlexCard(`📅 ${ev.title}`, content, ev.status === 'active' ? '#10b981' : '#6b7280'));
       } else {
         messages.push({ type: 'text', text: '找不到此活動' });
@@ -399,6 +403,19 @@ async function handleMessage(event) {
         messages.push({ type: 'text', text: '找不到此活動' });
       }
     }
+    else if (text === '報名連結' || text === '連結') {
+      const events = await getEvents();
+      const activeEvents = events.filter(e => e.status === 'active');
+      if (activeEvents.length === 0) {
+        messages.push(createFlexCard('🔗 報名連結', '目前沒有進行中的活動'));
+      } else {
+        const links = activeEvents.map(ev => {
+          const url = `${process.env.WEB_URL || 'https://workshop-bot-ut8f.onrender.com'}?register=${ev.id}`;
+          return `📅 ${ev.title}\n${url}`;
+        }).join('\n\n');
+        messages.push(createFlexCard('🔗 報名連結', links, '#3b82f6'));
+      }
+    }
     else if (text === '說明' || text === '幫助' || text === 'help') {
       const aiStatus = process.env.OPENAI_API_KEY ? '🤖 OpenAI 已連線' : (process.env.GEMINI_API_KEY ? '✨ Gemini 已連線' : '❌ AI 未設定');
       const helpText = `🎓 工作坊管理 Bot
@@ -407,6 +424,7 @@ async function handleMessage(event) {
 📅 活動列表 - 所有活動
 📋 最新報名 - 報名資料
 🎨 生成文宣 - AI 文案
+🔗 報名連結 - 取得報名網址
 db - 資料庫狀態
 ai - AI 狀態
 
