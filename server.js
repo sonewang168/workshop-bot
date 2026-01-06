@@ -558,11 +558,18 @@ async function handleMessage(event) {
       if (ev) {
         const prompt = `你是活動文案專家。請為以下工作坊撰寫社群貼文風格的宣傳文案，活潑有趣，包含 emoji 和 hashtag。
 
-活動：${ev.title}
-說明：${ev.description || ''}
-時間：${ev.date} ${ev.time}${ev.endTime ? ' - ' + ev.endTime : ''}
-地點：${ev.location}
-名額：${ev.maxParticipants} 人
+【活動資訊 - 請務必正確使用】
+活動名稱：${ev.title}
+活動說明：${ev.description || '無'}
+活動日期：${ev.date}（這是活動舉辦的日期，只有一天）
+活動時間：${ev.time}${ev.endTime ? ' 至 ' + ev.endTime : ''}
+活動地點：${ev.location}
+報名名額：${ev.maxParticipants} 人
+
+重要提醒：
+- 活動只有一天，日期是 ${ev.date}
+- 時間是 ${ev.time}${ev.endTime ? ' 到 ' + ev.endTime : ''}
+- 請勿編造或修改日期時間
 
 直接輸出文案，約150-250字。`;
         
@@ -674,6 +681,20 @@ app.use(express.json());
 app.get('/api/events', async (req, res) => { try { res.json(await getEvents()); } catch (e) { res.status(500).json({ error: e.message }); } });
 app.post('/api/events', async (req, res) => { try { res.json(await addEvent(req.body)); } catch (e) { res.status(500).json({ error: e.message }); } });
 app.put('/api/events/:id', async (req, res) => { try { await updateEvent(req.params.id, req.body); res.json({ success: true }); } catch (e) { res.status(500).json({ error: e.message }); } });
+
+app.delete('/api/events/:id', async (req, res) => {
+  try {
+    if (useFirebase) {
+      await db.collection('events').doc(req.params.id).delete();
+    } else {
+      const idx = memoryData.events.findIndex(e => e.id === req.params.id);
+      if (idx !== -1) memoryData.events.splice(idx, 1);
+    }
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 app.get('/api/registrations', async (req, res) => { try { res.json(await getRegistrations(req.query.eventId)); } catch (e) { res.status(500).json({ error: e.message }); } });
 app.post('/api/registrations', async (req, res) => { try { res.json(await addRegistration(req.body)); } catch (e) { res.status(500).json({ error: e.message }); } });
 
@@ -702,11 +723,17 @@ app.post('/api/generate-poster', async (req, res) => {
     const { event, style } = req.body;
     const prompt = `你是活動文案專家。請為以下工作坊撰寫${style}的宣傳文案。
 
-活動：${event.title}
-說明：${event.description || ''}
-時間：${event.date} ${event.time || ''}${event.endTime ? ' - ' + event.endTime : ''}
-地點：${event.location || ''}
-名額：${event.maxParticipants} 人
+【活動資訊 - 請務必正確使用】
+活動名稱：${event.title}
+活動說明：${event.description || '無'}
+活動日期：${event.date}（這是活動舉辦的日期，只有一天）
+活動時間：${event.time || ''}${event.endTime ? ' 至 ' + event.endTime : ''}
+活動地點：${event.location || ''}
+報名名額：${event.maxParticipants} 人
+
+重要提醒：
+- 活動只有一天，日期是 ${event.date}
+- 請勿編造或修改日期時間
 
 直接輸出文案，約150-250字。`;
     

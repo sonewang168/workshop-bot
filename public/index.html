@@ -295,11 +295,46 @@ function EventsPage({ events, onRefresh, showToast }) {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ title: '', description: '', date: '', time: '', endTime: '', location: '', maxParticipants: 30, status: 'draft' });
 
+  const openNew = () => {
+    setEditing(null);
+    setForm({ title: '', description: '', date: '', time: '', endTime: '', location: '', maxParticipants: 30, status: 'draft' });
+    setShowModal(true);
+  };
+
+  const openEdit = (ev) => {
+    setEditing(ev);
+    setForm({
+      title: ev.title || '',
+      description: ev.description || '',
+      date: ev.date || '',
+      time: ev.time || '',
+      endTime: ev.endTime || '',
+      location: ev.location || '',
+      maxParticipants: ev.maxParticipants || 30,
+      status: ev.status || 'draft'
+    });
+    setShowModal(true);
+  };
+
   const handleSubmit = async () => {
     if (!form.title || !form.date) { showToast('請填寫活動名稱和日期', 'error'); return; }
-    await API.addEvent(form);
-    showToast('活動已新增！', 'success');
+    
+    if (editing) {
+      // 更新現有活動
+      await fetch(`/api/events/${editing.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form)
+      });
+      showToast('活動已更新！', 'success');
+    } else {
+      // 新增活動
+      await API.addEvent(form);
+      showToast('活動已新增！', 'success');
+    }
+    
     setShowModal(false);
+    setEditing(null);
     setForm({ title: '', description: '', date: '', time: '', endTime: '', location: '', maxParticipants: 30, status: 'draft' });
     onRefresh();
   };
@@ -310,18 +345,29 @@ function EventsPage({ events, onRefresh, showToast }) {
     onRefresh();
   };
 
+  const deleteEvent = async (ev) => {
+    if (!confirm(`確定要刪除「${ev.title}」？此操作無法復原！`)) return;
+    try {
+      await fetch(`/api/events/${ev.id}`, { method: 'DELETE' });
+      showToast('活動已刪除', 'success');
+      onRefresh();
+    } catch (e) {
+      showToast('刪除失敗', 'error');
+    }
+  };
+
   return (
     <div>
       <div className="header">
         <h1>📅 活動管理</h1>
-        <button className="btn btn-primary" onClick={() => setShowModal(true)}>＋ 新增活動</button>
+        <button className="btn btn-primary" onClick={openNew}>＋ 新增活動</button>
       </div>
       <div className="card">
         {events.length === 0 ? (
           <div className="empty-state">
             <div className="icon">📅</div>
             <p>還沒有任何活動</p>
-            <button className="btn btn-primary" style={{ marginTop: '20px' }} onClick={() => setShowModal(true)}>建立第一個活動</button>
+            <button className="btn btn-primary" style={{ marginTop: '20px' }} onClick={openNew}>建立第一個活動</button>
           </div>
         ) : (
           <table>
@@ -329,7 +375,7 @@ function EventsPage({ events, onRefresh, showToast }) {
             <tbody>
               {events.map(ev => (
                 <tr key={ev.id}>
-                  <td><strong>{ev.title}</strong></td>
+                  <td><strong style={{ cursor: 'pointer', color: '#6366f1' }} onClick={() => openEdit(ev)}>{ev.title}</strong></td>
                   <td>{ev.date} {ev.time}{ev.endTime ? `-${ev.endTime}` : ''}</td>
                   <td>{ev.location}</td>
                   <td>{ev.registrations || 0}/{ev.maxParticipants}</td>
@@ -339,9 +385,8 @@ function EventsPage({ events, onRefresh, showToast }) {
                     </span>
                   </td>
                   <td>
-                    {ev.status === 'active' && <button className="btn btn-secondary btn-sm" style={{ marginRight: '8px' }} onClick={() => { navigator.clipboard.writeText(`${window.location.origin}?register=${ev.id}`); showToast('報名連結已複製！', 'success'); }}>🔗 複製連結</button>}
-                    {ev.status === 'draft' && <button className="btn btn-success btn-sm" onClick={() => updateStatus(ev.id, 'active')}>發布</button>}
-                    {ev.status === 'active' && <button className="btn btn-secondary btn-sm" onClick={() => updateStatus(ev.id, 'ended')}>結束</button>}
+                    <button className="btn btn-secondary btn-sm" onClick={() => openEdit(ev)}>✏️ 編輯</button>
+                    {ev.status === 'active' && <button className="btn btn-secondary btn-sm" style={{ marginLeft: '8px' }} onClick={() => { navigator.clipboard.writeText(`${window.location.origin}?register=${ev.id}`); showToast('報名連結已複製！', 'success'); }}>🔗 連結</button>}
                   </td>
                 </tr>
               ))}
@@ -353,7 +398,7 @@ function EventsPage({ events, onRefresh, showToast }) {
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <h2>➕ 新增活動</h2>
+            <h2>{editing ? '✏️ 編輯活動' : '➕ 新增活動'}</h2>
             <div className="form-group">
               <label>活動名稱 *</label>
               <input value={form.title} onChange={e => setForm({...form, title: e.target.value})} placeholder="例：AI 繪圖工作坊" />
@@ -392,12 +437,14 @@ function EventsPage({ events, onRefresh, showToast }) {
                 <select value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
                   <option value="draft">草稿</option>
                   <option value="active">進行中</option>
+                  <option value="ended">已結束</option>
                 </select>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
-              <button className="btn btn-primary" onClick={handleSubmit}>儲存活動</button>
+            <div style={{ display: 'flex', gap: '10px', marginTop: '20px', flexWrap: 'wrap' }}>
+              <button className="btn btn-primary" onClick={handleSubmit}>{editing ? '💾 儲存變更' : '儲存活動'}</button>
               <button className="btn btn-secondary" onClick={() => setShowModal(false)}>取消</button>
+              {editing && <button className="btn btn-danger" style={{ marginLeft: 'auto' }} onClick={() => { setShowModal(false); deleteEvent(editing); }}>🗑️ 刪除</button>}
             </div>
           </div>
         </div>
