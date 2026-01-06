@@ -213,12 +213,12 @@ function EventsPage({ events, onRefresh, showToast }) {
           </div>
         ) : (
           <table>
-            <thead><tr><th>活動名稱</th><th>日期</th><th>地點</th><th>報名</th><th>狀態</th><th>操作</th></tr></thead>
+            <thead><tr><th>活動名稱</th><th>日期時間</th><th>地點</th><th>報名</th><th>狀態</th><th>操作</th></tr></thead>
             <tbody>
               {events.map(ev => (
                 <tr key={ev.id}>
                   <td><strong>{ev.title}</strong></td>
-                  <td>{ev.date} {ev.time}</td>
+                  <td>{ev.date} {ev.time}{ev.endTime ? `-${ev.endTime}` : ''}</td>
                   <td>{ev.location}</td>
                   <td>{ev.registrations || 0}/{ev.maxParticipants}</td>
                   <td>
@@ -255,13 +255,19 @@ function EventsPage({ events, onRefresh, showToast }) {
                 <input type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
               </div>
               <div className="form-group">
-                <label>時間</label>
+                <label>開始時間</label>
                 <input type="time" value={form.time} onChange={e => setForm({...form, time: e.target.value})} />
               </div>
             </div>
-            <div className="form-group">
-              <label>地點</label>
-              <input value={form.location} onChange={e => setForm({...form, location: e.target.value})} placeholder="例：線上 Google Meet" />
+            <div className="form-row">
+              <div className="form-group">
+                <label>結束時間</label>
+                <input type="time" value={form.endTime} onChange={e => setForm({...form, endTime: e.target.value})} />
+              </div>
+              <div className="form-group">
+                <label>地點</label>
+                <input value={form.location} onChange={e => setForm({...form, location: e.target.value})} placeholder="例：線上 Google Meet" />
+              </div>
             </div>
             <div className="form-row">
               <div className="form-group">

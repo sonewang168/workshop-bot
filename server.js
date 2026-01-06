@@ -238,7 +238,7 @@ function createEventsCarousel(events) {
     type: 'bubble', size: 'kilo',
     header: { type: 'box', layout: 'vertical', contents: [{ type: 'text', text: ev.title, weight: 'bold', size: 'md', color: '#ffffff', wrap: true }], backgroundColor: ev.status === 'active' ? '#10b981' : ev.status === 'draft' ? '#6b7280' : '#ef4444', paddingAll: '12px' },
     body: { type: 'box', layout: 'vertical', contents: [
-      { type: 'text', text: `📅 ${ev.date} ${ev.time}`, size: 'xs', color: '#666666' },
+      { type: 'text', text: `📅 ${ev.date} ${ev.time}${ev.endTime ? '-' + ev.endTime : ''}`, size: 'xs', color: '#666666' },
       { type: 'text', text: `📍 ${ev.location}`, size: 'xs', color: '#666666', margin: 'sm' },
       { type: 'separator', margin: 'md' },
       { type: 'box', layout: 'horizontal', contents: [
@@ -354,7 +354,7 @@ async function handleMessage(event) {
       const eventId = text.split(' ')[1];
       const ev = await getEvent(eventId);
       if (ev) {
-        const content = `📅 日期：${ev.date} ${ev.time}\n📍 地點：${ev.location}\n👥 報名：${ev.registrations || 0}/${ev.maxParticipants}\n📨 通知：${ev.notifications || 0} 次\n🏆 證書：${ev.certificates || 0} 張\n\n狀態：${ev.status === 'active' ? '✅ 進行中' : ev.status === 'draft' ? '📝 草稿' : '🔴 已結束'}`;
+        const content = `📅 日期：${ev.date} ${ev.time}${ev.endTime ? ' - ' + ev.endTime : ''}\n📍 地點：${ev.location}\n👥 報名：${ev.registrations || 0}/${ev.maxParticipants}\n📨 通知：${ev.notifications || 0} 次\n🏆 證書：${ev.certificates || 0} 張\n\n狀態：${ev.status === 'active' ? '✅ 進行中' : ev.status === 'draft' ? '📝 草稿' : '🔴 已結束'}`;
         messages.push(createFlexCard(`📅 ${ev.title}`, content, ev.status === 'active' ? '#10b981' : '#6b7280'));
       } else {
         messages.push({ type: 'text', text: '找不到此活動' });
@@ -386,7 +386,7 @@ async function handleMessage(event) {
 
 活動：${ev.title}
 說明：${ev.description || ''}
-時間：${ev.date} ${ev.time}
+時間：${ev.date} ${ev.time}${ev.endTime ? ' - ' + ev.endTime : ''}
 地點：${ev.location}
 名額：${ev.maxParticipants} 人
 
@@ -478,7 +478,7 @@ app.post('/api/generate-poster', async (req, res) => {
 
 活動：${event.title}
 說明：${event.description || ''}
-時間：${event.date} ${event.time || ''}
+時間：${event.date} ${event.time || ''}${event.endTime ? ' - ' + event.endTime : ''}
 地點：${event.location || ''}
 名額：${event.maxParticipants} 人
 
