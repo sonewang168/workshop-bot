@@ -9,22 +9,40 @@ const app = express();
 app.use(cors());
 
 // ==================== Firebase 初始化 ====================
-let db;
-try {
-  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
-  
-  if (serviceAccount.project_id) {
+let db = null;
+let useFirebase = false;
+
+async function initFirebase() {
+  try {
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
+    
+    if (!serviceAccount.project_id) {
+      console.log('⚠️ Firebase 未設定，使用記憶體模式');
+      return;
+    }
+
     admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount)
+      credential: admin.credential.cert(serviceAccount),
+      projectId: serviceAccount.project_id
     });
+    
     db = admin.firestore();
-    console.log('✅ Firebase 連線成功');
-  } else {
-    console.log('⚠️ Firebase 未設定，使用記憶體模式');
+    
+    // 測試連線 - 嘗試讀取一個 collection
+    await db.collection('_test').limit(1).get();
+    
+    useFirebase = true;
+    console.log('✅ Firebase Firestore 連線成功');
+    
+  } catch (error) {
+    console.error('⚠️ Firebase 連線失敗，使用記憶體模式:', error.message);
+    db = null;
+    useFirebase = false;
   }
-} catch (error) {
-  console.error('Firebase 初始化失敗:', error.message);
 }
+
+// 立即初始化
+initFirebase();
 
 // ==================== LINE Bot 設定 ====================
 const lineConfig = {
@@ -38,113 +56,7 @@ const client = new line.messagingApi.MessagingApiClient({
 
 const ADMIN_IDS = (process.env.ADMIN_USER_IDS || '').split(',').filter(Boolean);
 
-// ==================== Firestore 資料操作 ====================
-
-// 取得所有活動
-async function getEvents() {
-  if (!db) return getMemoryData().events;
-  const snapshot = await db.collection('events').orderBy('createdAt', 'desc').get();
-  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-}
-
-// 取得單一活動
-async function getEvent(eventId) {
-  if (!db) return getMemoryData().events.find(e => e.id === eventId);
-  const doc = await db.collection('events').doc(eventId).get();
-  return doc.exists ? { id: doc.id, ...doc.data() } : null;
-}
-
-// 新增活動
-async function addEvent(eventData) {
-  if (!db) {
-    const newEvent = { ...eventData, id: Date.now().toString(), createdAt: new Date().toISOString() };
-    memoryData.events.push(newEvent);
-    return newEvent;
-  }
-  const docRef = await db.collection('events').add({
-    ...eventData,
-    registrations: 0,
-    notifications: 0,
-    certificates: 0,
-    createdAt: admin.firestore.FieldValue.serverTimestamp()
-  });
-  return { id: docRef.id, ...eventData };
-}
-
-// 更新活動
-async function updateEvent(eventId, updates) {
-  if (!db) {
-    const idx = memoryData.events.findIndex(e => e.id === eventId);
-    if (idx !== -1) memoryData.events[idx] = { ...memoryData.events[idx], ...updates };
-    return;
-  }
-  await db.collection('events').doc(eventId).update(updates);
-}
-
-// 取得所有報名
-async function getRegistrations(eventId = null) {
-  if (!db) {
-    const regs = getMemoryData().registrations;
-    return eventId ? regs.filter(r => r.eventId === eventId) : regs;
-  }
-  let query = db.collection('registrations').orderBy('createdAt', 'desc');
-  if (eventId) query = query.where('eventId', '==', eventId);
-  const snapshot = await query.get();
-  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-}
-
-// 新增報名
-async function addRegistration(regData) {
-  if (!db) {
-    const newReg = { ...regData, id: Date.now().toString(), createdAt: new Date().toISOString(), status: 'pending' };
-    memoryData.registrations.push(newReg);
-    const event = memoryData.events.find(e => e.id === regData.eventId);
-    if (event) event.registrations++;
-    return newReg;
-  }
-  
-  // 新增報名
-  const docRef = await db.collection('registrations').add({
-    ...regData,
-    status: 'pending',
-    createdAt: admin.firestore.FieldValue.serverTimestamp()
-  });
-  
-  // 更新活動報名數
-  await db.collection('events').doc(regData.eventId).update({
-    registrations: admin.firestore.FieldValue.increment(1)
-  });
-  
-  return { id: docRef.id, ...regData };
-}
-
-// 更新報名狀態
-async function updateRegistration(regId, updates) {
-  if (!db) {
-    const idx = memoryData.registrations.findIndex(r => r.id === regId);
-    if (idx !== -1) memoryData.registrations[idx] = { ...memoryData.registrations[idx], ...updates };
-    return;
-  }
-  await db.collection('registrations').doc(regId).update(updates);
-}
-
-// 取得設定
-async function getSettings() {
-  if (!db) return getMemoryData().settings;
-  const doc = await db.collection('settings').doc('main').get();
-  return doc.exists ? doc.data() : { geminiApiKey: '' };
-}
-
-// 更新設定
-async function saveSettings(settings) {
-  if (!db) {
-    memoryData.settings = settings;
-    return;
-  }
-  await db.collection('settings').doc('main').set(settings, { merge: true });
-}
-
-// ==================== 記憶體備援 ====================
+// ==================== 記憶體資料 ====================
 let memoryData = {
   events: [
     { id: '1', title: 'AI 繪圖入門工作坊', description: '學習 Stable Diffusion', date: '2026-01-15', time: '14:00', endTime: '17:00', location: '線上 Google Meet', maxParticipants: 30, status: 'active', registrations: 24, notifications: 2, certificates: 0, instructorName: '王老師', createdAt: new Date().toISOString() },
@@ -157,7 +69,126 @@ let memoryData = {
   settings: { geminiApiKey: process.env.GEMINI_API_KEY || '' }
 };
 
-function getMemoryData() { return memoryData; }
+// ==================== 資料操作函數 ====================
+
+async function getEvents() {
+  if (!useFirebase) return memoryData.events;
+  try {
+    const snapshot = await db.collection('events').orderBy('createdAt', 'desc').get();
+    if (snapshot.empty) return [];
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  } catch (e) {
+    console.error('getEvents error:', e.message);
+    return memoryData.events;
+  }
+}
+
+async function getEvent(eventId) {
+  if (!useFirebase) return memoryData.events.find(e => e.id === eventId);
+  try {
+    const doc = await db.collection('events').doc(eventId).get();
+    return doc.exists ? { id: doc.id, ...doc.data() } : null;
+  } catch (e) {
+    console.error('getEvent error:', e.message);
+    return memoryData.events.find(e => e.id === eventId);
+  }
+}
+
+async function addEvent(eventData) {
+  const newEvent = {
+    ...eventData,
+    registrations: 0,
+    notifications: 0,
+    certificates: 0,
+    createdAt: new Date().toISOString()
+  };
+  
+  if (!useFirebase) {
+    newEvent.id = Date.now().toString();
+    memoryData.events.unshift(newEvent);
+    return newEvent;
+  }
+  
+  try {
+    const docRef = await db.collection('events').add(newEvent);
+    return { id: docRef.id, ...newEvent };
+  } catch (e) {
+    console.error('addEvent error:', e.message);
+    newEvent.id = Date.now().toString();
+    memoryData.events.unshift(newEvent);
+    return newEvent;
+  }
+}
+
+async function updateEvent(eventId, updates) {
+  if (!useFirebase) {
+    const idx = memoryData.events.findIndex(e => e.id === eventId);
+    if (idx !== -1) memoryData.events[idx] = { ...memoryData.events[idx], ...updates };
+    return;
+  }
+  try {
+    await db.collection('events').doc(eventId).update(updates);
+  } catch (e) {
+    console.error('updateEvent error:', e.message);
+  }
+}
+
+async function getRegistrations(eventId = null) {
+  if (!useFirebase) {
+    const regs = memoryData.registrations;
+    return eventId ? regs.filter(r => r.eventId === eventId) : regs;
+  }
+  try {
+    let query = db.collection('registrations').orderBy('createdAt', 'desc');
+    if (eventId) query = query.where('eventId', '==', eventId);
+    const snapshot = await query.get();
+    if (snapshot.empty) return [];
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  } catch (e) {
+    console.error('getRegistrations error:', e.message);
+    const regs = memoryData.registrations;
+    return eventId ? regs.filter(r => r.eventId === eventId) : regs;
+  }
+}
+
+async function addRegistration(regData) {
+  const newReg = {
+    ...regData,
+    status: 'pending',
+    createdAt: new Date().toISOString()
+  };
+  
+  if (!useFirebase) {
+    newReg.id = Date.now().toString();
+    memoryData.registrations.unshift(newReg);
+    const event = memoryData.events.find(e => e.id === regData.eventId);
+    if (event) event.registrations++;
+    return newReg;
+  }
+  
+  try {
+    const docRef = await db.collection('registrations').add(newReg);
+    await db.collection('events').doc(regData.eventId).update({
+      registrations: admin.firestore.FieldValue.increment(1)
+    });
+    return { id: docRef.id, ...newReg };
+  } catch (e) {
+    console.error('addRegistration error:', e.message);
+    newReg.id = Date.now().toString();
+    memoryData.registrations.unshift(newReg);
+    return newReg;
+  }
+}
+
+async function getSettings() {
+  if (!useFirebase) return memoryData.settings;
+  try {
+    const doc = await db.collection('settings').doc('main').get();
+    return doc.exists ? doc.data() : { geminiApiKey: process.env.GEMINI_API_KEY || '' };
+  } catch (e) {
+    return memoryData.settings;
+  }
+}
 
 // ==================== Gemini API ====================
 async function callGemini(prompt) {
@@ -211,6 +242,10 @@ function createFlexCard(title, content, color = '#6366f1') {
 }
 
 function createEventsCarousel(events) {
+  if (events.length === 0) {
+    return createFlexCard('📅 活動列表', '目前沒有任何活動');
+  }
+  
   const bubbles = events.slice(0, 10).map(ev => ({
     type: 'bubble',
     size: 'kilo',
@@ -246,6 +281,7 @@ function createEventsCarousel(events) {
       paddingAll: '10px'
     }
   }));
+  
   return { type: 'flex', altText: '活動列表', contents: { type: 'carousel', contents: bubbles } };
 }
 
@@ -257,6 +293,7 @@ async function createDashboardCard() {
   const activeEvents = events.filter(e => e.status === 'active').length;
   const totalRegs = regs.length;
   const totalCerts = events.reduce((s, e) => s + (e.certificates || 0), 0);
+  const dbStatus = useFirebase ? '🔥 Firebase' : '💾 記憶體';
 
   return {
     type: 'flex',
@@ -267,7 +304,7 @@ async function createDashboardCard() {
         type: 'box', layout: 'vertical',
         contents: [
           { type: 'text', text: '📊 系統總覽', weight: 'bold', size: 'xl', color: '#ffffff' },
-          { type: 'text', text: `🔥 Firebase 即時同步`, size: 'xs', color: '#ffffffcc' }
+          { type: 'text', text: dbStatus, size: 'xs', color: '#ffffffcc' }
         ],
         backgroundColor: '#6366f1', paddingAll: '20px'
       },
@@ -375,69 +412,67 @@ async function handleMessage(event) {
   if (!isAdmin(userId)) {
     return client.replyMessage({
       replyToken: event.replyToken,
-      messages: [createFlexCard('⚠️ 權限不足', '您不是管理員。\n\nYour ID: ' + userId, '#ef4444')]
+      messages: [createFlexCard('⚠️ 權限不足', '您不是管理員。\n\nYour ID:\n' + userId, '#ef4444')]
     });
   }
 
   let messages = [];
-  const events = await getEvents();
 
-  if (text === '總覽' || text === '查看總覽' || text === '首頁') {
-    messages.push(await createDashboardCard());
-  }
-  else if (text === '活動列表' || text === '活動' || text === '查看活動') {
-    if (events.length === 0) {
-      messages.push(createFlexCard('📅 活動列表', '目前沒有任何活動'));
-    } else {
+  try {
+    if (text === '總覽' || text === '查看總覽' || text === '首頁') {
+      messages.push(await createDashboardCard());
+    }
+    else if (text === '活動列表' || text === '活動' || text === '查看活動') {
+      const events = await getEvents();
       messages.push(createEventsCarousel(events));
     }
-  }
-  else if (text.startsWith('活動詳情')) {
-    const eventId = text.split(' ')[1];
-    const ev = await getEvent(eventId);
-    if (ev) {
-      const content = `📅 日期：${ev.date} ${ev.time}\n📍 地點：${ev.location}\n👥 報名：${ev.registrations || 0}/${ev.maxParticipants}\n📨 通知：${ev.notifications || 0} 次\n🏆 證書：${ev.certificates || 0} 張\n\n狀態：${ev.status === 'active' ? '✅ 進行中' : ev.status === 'draft' ? '📝 草稿' : '🔴 已結束'}`;
-      messages.push(createFlexCard(`📅 ${ev.title}`, content, ev.status === 'active' ? '#10b981' : '#6b7280'));
-    } else {
-      messages.push({ type: 'text', text: '找不到此活動' });
+    else if (text.startsWith('活動詳情')) {
+      const eventId = text.split(' ')[1];
+      const ev = await getEvent(eventId);
+      if (ev) {
+        const content = `📅 日期：${ev.date} ${ev.time}\n📍 地點：${ev.location}\n👥 報名：${ev.registrations || 0}/${ev.maxParticipants}\n📨 通知：${ev.notifications || 0} 次\n🏆 證書：${ev.certificates || 0} 張\n\n狀態：${ev.status === 'active' ? '✅ 進行中' : ev.status === 'draft' ? '📝 草稿' : '🔴 已結束'}`;
+        messages.push(createFlexCard(`📅 ${ev.title}`, content, ev.status === 'active' ? '#10b981' : '#6b7280'));
+      } else {
+        messages.push({ type: 'text', text: '找不到此活動' });
+      }
     }
-  }
-  else if (text === '最新報名' || text === '報名') {
-    messages.push(await createRecentRegistrations());
-  }
-  else if (text === '生成文宣' || text === '文宣') {
-    const activeEvents = events.filter(e => e.status === 'active');
-    if (activeEvents.length === 0) {
-      messages.push(createFlexCard('🎨 生成文宣', '目前沒有進行中的活動'));
-    } else {
-      messages.push({
-        type: 'flex',
-        altText: '選擇活動',
-        contents: {
-          type: 'bubble',
-          header: {
-            type: 'box', layout: 'vertical',
-            contents: [{ type: 'text', text: '🎨 選擇要生成文宣的活動', weight: 'bold', size: 'md', color: '#ffffff' }],
-            backgroundColor: '#a855f7', paddingAll: '15px'
-          },
-          body: {
-            type: 'box', layout: 'vertical',
-            contents: activeEvents.map(ev => ({
-              type: 'button',
-              action: { type: 'message', label: ev.title.slice(0, 20), text: `生成文宣 ${ev.id}` },
-              style: 'secondary', margin: 'sm'
-            })),
-            paddingAll: '15px'
+    else if (text === '最新報名' || text === '報名') {
+      messages.push(await createRecentRegistrations());
+    }
+    else if (text === '生成文宣' || text === '文宣') {
+      const events = await getEvents();
+      const activeEvents = events.filter(e => e.status === 'active');
+      if (activeEvents.length === 0) {
+        messages.push(createFlexCard('🎨 生成文宣', '目前沒有進行中的活動'));
+      } else {
+        messages.push({
+          type: 'flex',
+          altText: '選擇活動',
+          contents: {
+            type: 'bubble',
+            header: {
+              type: 'box', layout: 'vertical',
+              contents: [{ type: 'text', text: '🎨 選擇活動', weight: 'bold', size: 'md', color: '#ffffff' }],
+              backgroundColor: '#a855f7', paddingAll: '15px'
+            },
+            body: {
+              type: 'box', layout: 'vertical',
+              contents: activeEvents.map(ev => ({
+                type: 'button',
+                action: { type: 'message', label: ev.title.slice(0, 20), text: `生成文宣 ${ev.id}` },
+                style: 'secondary', margin: 'sm'
+              })),
+              paddingAll: '15px'
+            }
           }
-        }
-      });
+        });
+      }
     }
-  }
-  else if (text.startsWith('生成文宣 ')) {
-    const eventId = text.split(' ')[1];
-    const ev = await getEvent(eventId);
-    if (ev) {
-      const prompt = `你是活動文案專家。請為以下工作坊撰寫社群貼文風格的宣傳文案，活潑有趣，包含適當的 emoji 和 hashtag。
+    else if (text.startsWith('生成文宣 ')) {
+      const eventId = text.split(' ')[1];
+      const ev = await getEvent(eventId);
+      if (ev) {
+        const prompt = `你是活動文案專家。請為以下工作坊撰寫社群貼文風格的宣傳文案，活潑有趣，包含 emoji 和 hashtag。
 
 活動：${ev.title}
 說明：${ev.description || ''}
@@ -446,38 +481,43 @@ async function handleMessage(event) {
 名額：${ev.maxParticipants} 人
 
 直接輸出文案，約150-250字。`;
-      
-      const poster = await callGemini(prompt);
-      messages = [createFlexCard(`🎨 ${ev.title} 文宣`, poster, '#a855f7')];
-    } else {
-      messages.push({ type: 'text', text: '找不到此活動' });
+        
+        const poster = await callGemini(prompt);
+        messages = [createFlexCard(`🎨 ${ev.title}`, poster, '#a855f7')];
+      } else {
+        messages.push({ type: 'text', text: '找不到此活動' });
+      }
     }
-  }
-  else if (text === '說明' || text === '幫助' || text === 'help') {
-    const helpText = `🎓 工作坊管理 Bot 使用說明
+    else if (text === '說明' || text === '幫助' || text === 'help') {
+      const dbStatus = useFirebase ? '🔥 Firebase 已連線' : '💾 記憶體模式';
+      const helpText = `🎓 工作坊管理 Bot
 
-📊 總覽 - 查看系統統計
-📅 活動列表 - 查看所有活動
-📋 最新報名 - 查看報名資料
-🎨 生成文宣 - AI 生成宣傳文案
+📊 總覽 - 系統統計
+📅 活動列表 - 所有活動
+📋 最新報名 - 報名資料
+🎨 生成文宣 - AI 文案
+db - 資料庫狀態
 
-🔥 Firebase 即時同步
-網頁版和 LINE Bot 資料同步！`;
-    messages.push(createFlexCard('❓ 使用說明', helpText, '#6366f1'));
-  }
-  else if (text === 'myid' || text === '我的ID') {
-    messages.push({ type: 'text', text: `您的 User ID：\n${userId}` });
-  }
-  else if (text === 'db' || text === '資料庫狀態') {
-    const status = db ? '✅ Firebase 已連線' : '⚠️ 使用記憶體模式';
-    messages.push({ type: 'text', text: status });
-  }
-  else {
-    messages.push({
-      type: 'text',
-      text: `您好！我是工作坊管理助手 🎓\n\n請使用指令：\n・總覽\n・活動列表\n・最新報名\n・生成文宣\n・說明`,
-      quickReply: createQuickReply()
-    });
+${dbStatus}`;
+      messages.push(createFlexCard('❓ 使用說明', helpText, '#6366f1'));
+    }
+    else if (text === 'myid' || text === '我的ID') {
+      messages.push({ type: 'text', text: `您的 User ID：\n${userId}` });
+    }
+    else if (text === 'db' || text === '資料庫狀態') {
+      const status = useFirebase ? '✅ Firebase Firestore 已連線' : '⚠️ 使用記憶體模式（資料不會永久保存）';
+      messages.push({ type: 'text', text: `資料庫狀態：\n${status}` });
+    }
+    else {
+      messages.push({
+        type: 'text',
+        text: `您好！我是工作坊管理助手 🎓\n\n請輸入：總覽、活動列表、最新報名、生成文宣、說明`,
+        quickReply: createQuickReply()
+      });
+    }
+  } catch (error) {
+    console.error('handleMessage error:', error);
+    messages.push({ type: 'text', text: '處理訊息時發生錯誤，請稍後再試' });
   }
 
   return client.replyMessage({ replyToken: event.replyToken, messages });
@@ -503,93 +543,37 @@ app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
     res.status(200).end();
   } catch (error) {
     console.error('Webhook error:', error);
-    res.status(500).end();
+    res.status(200).end(); // 回傳 200 避免 LINE 重試
   }
 });
 
 // ==================== API 端點 ====================
 app.use(express.json());
 
-// 活動 API
 app.get('/api/events', async (req, res) => {
-  try {
-    const events = await getEvents();
-    res.json(events);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  try { res.json(await getEvents()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/events', async (req, res) => {
-  try {
-    const newEvent = await addEvent(req.body);
-    res.json(newEvent);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  try { res.json(await addEvent(req.body)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.put('/api/events/:id', async (req, res) => {
-  try {
-    await updateEvent(req.params.id, req.body);
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 報名 API
 app.get('/api/registrations', async (req, res) => {
-  try {
-    const regs = await getRegistrations(req.query.eventId);
-    res.json(regs);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  try { res.json(await getRegistrations(req.query.eventId)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/registrations', async (req, res) => {
-  try {
-    const newReg = await addRegistration(req.body);
-    res.json(newReg);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  try { res.json(await addRegistration(req.body)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.put('/api/registrations/:id', async (req, res) => {
-  try {
-    await updateRegistration(req.params.id, req.body);
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 設定 API
-app.get('/api/settings', async (req, res) => {
-  try {
-    const settings = await getSettings();
-    res.json(settings);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/settings', async (req, res) => {
-  try {
-    await saveSettings(req.body);
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 資料庫狀態
 app.get('/api/status', (req, res) => {
   res.json({
-    firebase: !!db,
-    mode: db ? 'Firebase Firestore' : 'Memory',
+    firebase: useFirebase,
+    mode: useFirebase ? 'Firebase Firestore' : 'Memory',
     timestamp: new Date().toISOString()
   });
 });
@@ -606,5 +590,4 @@ app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📱 LINE Webhook: /webhook`);
   console.log(`🌐 Web UI: /`);
-  console.log(`🔥 Database: ${db ? 'Firebase' : 'Memory'}`);
 });
