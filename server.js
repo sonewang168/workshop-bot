@@ -111,7 +111,7 @@ async function sendAdminLineNotification(registration, event) {
             { type: 'text', text: `📱 ${registration.phone || '未填寫'}`, size: 'sm', color: '#666666', margin: 'sm' },
             { type: 'separator', margin: 'lg' },
             { type: 'text', text: `📅 ${event.title}`, size: 'sm', color: '#6366f1', margin: 'lg', weight: 'bold' },
-            { type: 'text', text: `報名人數：${(event.registrations || 0) + 1}/${event.maxParticipants}`, size: 'xs', color: '#888888', margin: 'sm' }
+            { type: 'text', text: `報名人數：${event.registrations || 0}/${event.maxParticipants}`, size: 'xs', color: '#888888', margin: 'sm' }
           ],
           paddingAll: '15px'
         },
@@ -169,7 +169,7 @@ async function sendCancelNotificationToAdmin(registration, event) {
             { type: 'text', text: `📧 ${registration.email}`, size: 'sm', color: '#666666', margin: 'sm' },
             { type: 'separator', margin: 'lg' },
             { type: 'text', text: `📅 ${event.title}`, size: 'sm', color: '#6366f1', margin: 'lg', weight: 'bold' },
-            { type: 'text', text: `剩餘名額：${event.maxParticipants - (event.registrations || 0) + 1}/${event.maxParticipants}`, size: 'xs', color: '#888888', margin: 'sm' }
+            { type: 'text', text: `剩餘名額：${event.maxParticipants - (event.registrations || 0)}/${event.maxParticipants}`, size: 'xs', color: '#888888', margin: 'sm' }
           ],
           paddingAll: '15px'
         }
@@ -769,29 +769,38 @@ app.get('/api/registrations/check', async (req, res) => {
   }
 });
 
-// 學員自行取消報名
+// 取消報名（學員或管理員）
 app.post('/api/registrations/:id/cancel', async (req, res) => {
   try {
-    await updateRegistration(req.params.id, { status: 'cancelled' });
-    
-    // 取得報名和活動資料
+    // 先取得報名資料檢查狀態
     const regs = await getRegistrations();
     const reg = regs.find(r => r.id === req.params.id);
-    if (reg) {
-      // 減少活動報名人數
-      if (useFirebase) {
-        await db.collection('events').doc(reg.eventId).update({ registrations: admin.firestore.FieldValue.increment(-1) });
-      } else {
-        const ev = memoryData.events.find(e => e.id === reg.eventId);
-        if (ev && ev.registrations > 0) ev.registrations--;
-      }
-      
-      // 通知管理員
-      const events = await getEvents();
-      const event = events.find(e => e.id === reg.eventId);
-      if (event) {
-        sendCancelNotificationToAdmin(reg, event);
-      }
+    
+    if (!reg) {
+      return res.status(404).json({ error: '找不到報名資料' });
+    }
+    
+    // 如果已經是取消狀態，不做任何事
+    if (reg.status === 'cancelled') {
+      return res.json({ success: true, message: '已經是取消狀態' });
+    }
+    
+    // 更新為取消狀態
+    await updateRegistration(req.params.id, { status: 'cancelled' });
+    
+    // 減少活動報名人數
+    if (useFirebase) {
+      await db.collection('events').doc(reg.eventId).update({ registrations: admin.firestore.FieldValue.increment(-1) });
+    } else {
+      const ev = memoryData.events.find(e => e.id === reg.eventId);
+      if (ev && ev.registrations > 0) ev.registrations--;
+    }
+    
+    // 重新取得更新後的活動資料並通知管理員
+    const events = await getEvents();
+    const event = events.find(e => e.id === reg.eventId);
+    if (event) {
+      sendCancelNotificationToAdmin(reg, event);
     }
     
     res.json({ success: true });

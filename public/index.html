@@ -553,14 +553,25 @@ function RegistrationsPage({ events, registrations, onRefresh, showToast }) {
     }
   };
 
-  const cancelReg = async (regId) => {
-    if (!confirm('確定要取消此報名？')) return;
+  const revokeReg = async (regId) => {
+    if (!confirm('確定要撤銷此報名？將改回「待確認」狀態')) return;
     try {
       await fetch(`/api/registrations/${regId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'cancelled' })
+        body: JSON.stringify({ status: 'pending' })
       });
+      showToast('已撤銷確認', 'success');
+      onRefresh();
+    } catch (e) {
+      showToast('撤銷失敗', 'error');
+    }
+  };
+
+  const cancelReg = async (regId, eventId) => {
+    if (!confirm('確定要取消此報名？')) return;
+    try {
+      await fetch(`/api/registrations/${regId}/cancel`, { method: 'POST' });
       showToast('已取消報名', 'success');
       onRefresh();
     } catch (e) {
@@ -591,11 +602,16 @@ function RegistrationsPage({ events, registrations, onRefresh, showToast }) {
                       {r.status === 'pending' && (
                         <>
                           <button className="btn btn-success btn-sm" onClick={() => confirmReg(r.id)}>✓ 確認</button>
-                          <button className="btn btn-secondary btn-sm" style={{ marginLeft: '8px' }} onClick={() => cancelReg(r.id)}>✗ 取消</button>
+                          <button className="btn btn-danger btn-sm" style={{ marginLeft: '8px' }} onClick={() => cancelReg(r.id, r.eventId)}>✗ 取消</button>
                         </>
                       )}
-                      {r.status === 'confirmed' && <span style={{ color: '#10b981' }}>✅</span>}
-                      {r.status === 'cancelled' && <span style={{ color: '#ef4444' }}>❌</span>}
+                      {r.status === 'confirmed' && (
+                        <>
+                          <button className="btn btn-secondary btn-sm" onClick={() => revokeReg(r.id)}>↩ 撤銷</button>
+                          <button className="btn btn-danger btn-sm" style={{ marginLeft: '8px' }} onClick={() => cancelReg(r.id, r.eventId)}>✗ 取消</button>
+                        </>
+                      )}
+                      {r.status === 'cancelled' && <span style={{ color: '#64748b' }}>已取消</span>}
                     </td>
                   </tr>
                 );
