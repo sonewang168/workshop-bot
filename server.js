@@ -285,6 +285,19 @@ async function addRegistration(regData, sendNotifications = true) {
   return newReg;
 }
 
+async function updateRegistration(regId, updates) {
+  if (!useFirebase) {
+    const idx = memoryData.registrations.findIndex(r => r.id === regId);
+    if (idx !== -1) memoryData.registrations[idx] = { ...memoryData.registrations[idx], ...updates };
+    return;
+  }
+  try {
+    await db.collection('registrations').doc(regId).update(updates);
+  } catch (e) {
+    console.error('updateRegistration error:', e.message);
+  }
+}
+
 // ==================== AI API（支援 OpenAI + Gemini）====================
 async function callOpenAI(prompt) {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -451,6 +464,9 @@ async function createRecentRegistrations() {
   const events = await getEvents();
   const recent = regs.slice(0, 5);
   if (recent.length === 0) return createFlexCard('📋 最新報名', '目前沒有報名資料');
+  
+  const pendingCount = regs.filter(r => r.status === 'pending').length;
+  
   const items = recent.map(r => {
     const event = events.find(e => e.id === r.eventId);
     return { type: 'box', layout: 'horizontal', contents: [
@@ -461,9 +477,22 @@ async function createRecentRegistrations() {
       ], flex: 1, margin: 'md' }
     ], margin: 'md' };
   });
+  
+  const footer = pendingCount > 0 ? {
+    type: 'box', layout: 'vertical',
+    contents: [
+      { type: 'button', action: { type: 'message', label: `✅ 確認全部 (${pendingCount})`, text: '確認全部' }, style: 'primary', height: 'sm' }
+    ],
+    paddingAll: '10px'
+  } : null;
+  
   return { type: 'flex', altText: '最新報名', contents: { type: 'bubble',
-    header: { type: 'box', layout: 'vertical', contents: [{ type: 'text', text: '📋 最新報名', weight: 'bold', size: 'lg', color: '#ffffff' }], backgroundColor: '#3b82f6', paddingAll: '15px' },
-    body: { type: 'box', layout: 'vertical', contents: items, paddingAll: '15px' }
+    header: { type: 'box', layout: 'vertical', contents: [
+      { type: 'text', text: '📋 最新報名', weight: 'bold', size: 'lg', color: '#ffffff' },
+      { type: 'text', text: `待確認：${pendingCount} 筆`, size: 'xs', color: '#ffffffcc' }
+    ], backgroundColor: '#3b82f6', paddingAll: '15px' },
+    body: { type: 'box', layout: 'vertical', contents: items, paddingAll: '15px' },
+    ...(footer && { footer })
   }};
 }
 
@@ -557,6 +586,29 @@ async function handleMessage(event) {
         messages.push(createFlexCard('🔗 報名連結', links, '#3b82f6'));
       }
     }
+    else if (text === '確認全部' || text === '確認所有報名') {
+      const regs = await getRegistrations();
+      const pending = regs.filter(r => r.status === 'pending');
+      if (pending.length === 0) {
+        messages.push({ type: 'text', text: '沒有待確認的報名' });
+      } else {
+        for (const reg of pending) {
+          await updateRegistration(reg.id, { status: 'confirmed' });
+        }
+        messages.push(createFlexCard('✅ 批次確認完成', `已確認 ${pending.length} 筆報名`, '#10b981'));
+      }
+    }
+    else if (text.startsWith('確認 ')) {
+      const name = text.replace('確認 ', '').trim();
+      const regs = await getRegistrations();
+      const found = regs.find(r => r.name === name && r.status === 'pending');
+      if (found) {
+        await updateRegistration(found.id, { status: 'confirmed' });
+        messages.push(createFlexCard('✅ 確認成功', `已確認 ${name} 的報名`, '#10b981'));
+      } else {
+        messages.push({ type: 'text', text: `找不到 ${name} 的待確認報名` });
+      }
+    }
     else if (text === '說明' || text === '幫助' || text === 'help') {
       const aiStatus = process.env.OPENAI_API_KEY ? '🤖 OpenAI 已連線' : (process.env.GEMINI_API_KEY ? '✨ Gemini 已連線' : '❌ AI 未設定');
       const helpText = `🎓 工作坊管理 Bot
@@ -564,10 +616,12 @@ async function handleMessage(event) {
 📊 總覽 - 系統統計
 📅 活動列表 - 所有活動
 📋 最新報名 - 報名資料
-🎨 生成文宣 - AI 文案
 🔗 報名連結 - 取得報名網址
-db - 資料庫狀態
-ai - AI 狀態
+🎨 生成文宣 - AI 文案
+
+✅ 確認報名：
+• 確認全部 - 批次確認
+• 確認 姓名 - 單筆確認
 
 🔥 Firebase 已連線
 ${aiStatus}`;
@@ -622,6 +676,15 @@ app.post('/api/events', async (req, res) => { try { res.json(await addEvent(req.
 app.put('/api/events/:id', async (req, res) => { try { await updateEvent(req.params.id, req.body); res.json({ success: true }); } catch (e) { res.status(500).json({ error: e.message }); } });
 app.get('/api/registrations', async (req, res) => { try { res.json(await getRegistrations(req.query.eventId)); } catch (e) { res.status(500).json({ error: e.message }); } });
 app.post('/api/registrations', async (req, res) => { try { res.json(await addRegistration(req.body)); } catch (e) { res.status(500).json({ error: e.message }); } });
+
+app.put('/api/registrations/:id', async (req, res) => {
+  try {
+    await updateRegistration(req.params.id, req.body);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 app.get('/api/status', (req, res) => {
   res.json({
     firebase: useFirebase,

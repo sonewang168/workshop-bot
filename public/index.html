@@ -407,7 +407,36 @@ function EventsPage({ events, onRefresh, showToast }) {
 }
 
 // 報名管理
-function RegistrationsPage({ events, registrations, onRefresh }) {
+function RegistrationsPage({ events, registrations, onRefresh, showToast }) {
+  const confirmReg = async (regId) => {
+    try {
+      await fetch(`/api/registrations/${regId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'confirmed' })
+      });
+      showToast('已確認報名！', 'success');
+      onRefresh();
+    } catch (e) {
+      showToast('確認失敗', 'error');
+    }
+  };
+
+  const cancelReg = async (regId) => {
+    if (!confirm('確定要取消此報名？')) return;
+    try {
+      await fetch(`/api/registrations/${regId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'cancelled' })
+      });
+      showToast('已取消報名', 'success');
+      onRefresh();
+    } catch (e) {
+      showToast('取消失敗', 'error');
+    }
+  };
+
   return (
     <div>
       <div className="header"><h1>📋 報名管理</h1></div>
@@ -416,7 +445,7 @@ function RegistrationsPage({ events, registrations, onRefresh }) {
           <div className="empty-state"><div className="icon">📋</div><p>目前沒有報名資料</p></div>
         ) : (
           <table>
-            <thead><tr><th>姓名</th><th>Email</th><th>電話</th><th>活動</th><th>狀態</th></tr></thead>
+            <thead><tr><th>姓名</th><th>Email</th><th>電話</th><th>活動</th><th>狀態</th><th>操作</th></tr></thead>
             <tbody>
               {registrations.map(r => {
                 const ev = events.find(e => e.id === r.eventId);
@@ -424,9 +453,19 @@ function RegistrationsPage({ events, registrations, onRefresh }) {
                   <tr key={r.id}>
                     <td>{r.name}</td>
                     <td>{r.email}</td>
-                    <td>{r.phone}</td>
+                    <td>{r.phone || '-'}</td>
                     <td>{ev?.title || '未知'}</td>
-                    <td><span className={`badge ${r.status === 'confirmed' ? 'badge-green' : 'badge-yellow'}`}>{r.status === 'confirmed' ? '已確認' : '待確認'}</span></td>
+                    <td><span className={`badge ${r.status === 'confirmed' ? 'badge-green' : r.status === 'cancelled' ? 'badge-red' : 'badge-yellow'}`}>{r.status === 'confirmed' ? '已確認' : r.status === 'cancelled' ? '已取消' : '待確認'}</span></td>
+                    <td>
+                      {r.status === 'pending' && (
+                        <>
+                          <button className="btn btn-success btn-sm" onClick={() => confirmReg(r.id)}>✓ 確認</button>
+                          <button className="btn btn-secondary btn-sm" style={{ marginLeft: '8px' }} onClick={() => cancelReg(r.id)}>✗ 取消</button>
+                        </>
+                      )}
+                      {r.status === 'confirmed' && <span style={{ color: '#10b981' }}>✅</span>}
+                      {r.status === 'cancelled' && <span style={{ color: '#ef4444' }}>❌</span>}
+                    </td>
                   </tr>
                 );
               })}
@@ -668,7 +707,7 @@ function App() {
       <div className="main">
         {page === 'dashboard' && <Dashboard events={events} registrations={registrations} status={status} />}
         {page === 'events' && <EventsPage events={events} onRefresh={refresh} showToast={showToast} />}
-        {page === 'registrations' && <RegistrationsPage events={events} registrations={registrations} onRefresh={refresh} />}
+        {page === 'registrations' && <RegistrationsPage events={events} registrations={registrations} onRefresh={refresh} showToast={showToast} />}
         {page === 'poster' && <PosterPage events={events} showToast={showToast} />}
         {page === 'certificates' && <CertificatesPage events={events} registrations={registrations} showToast={showToast} />}
         {page === 'settings' && <SettingsPage status={status} />}
