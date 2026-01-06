@@ -142,6 +142,52 @@ async function sendAdminLineNotification(registration, event) {
   }
 }
 
+// 取消報名通知管理員
+async function sendCancelNotificationToAdmin(registration, event) {
+  if (ADMIN_IDS.length === 0) return;
+  
+  try {
+    const message = {
+      type: 'flex',
+      altText: `取消報名通知 - ${registration.name}`,
+      contents: {
+        type: 'bubble',
+        header: {
+          type: 'box',
+          layout: 'vertical',
+          contents: [
+            { type: 'text', text: '❌ 取消報名通知', weight: 'bold', size: 'lg', color: '#ffffff' }
+          ],
+          backgroundColor: '#ef4444',
+          paddingAll: '15px'
+        },
+        body: {
+          type: 'box',
+          layout: 'vertical',
+          contents: [
+            { type: 'text', text: `👤 ${registration.name}`, weight: 'bold', size: 'md' },
+            { type: 'text', text: `📧 ${registration.email}`, size: 'sm', color: '#666666', margin: 'sm' },
+            { type: 'separator', margin: 'lg' },
+            { type: 'text', text: `📅 ${event.title}`, size: 'sm', color: '#6366f1', margin: 'lg', weight: 'bold' },
+            { type: 'text', text: `剩餘名額：${event.maxParticipants - (event.registrations || 0) + 1}/${event.maxParticipants}`, size: 'xs', color: '#888888', margin: 'sm' }
+          ],
+          paddingAll: '15px'
+        }
+      }
+    };
+    
+    for (const adminId of ADMIN_IDS) {
+      try {
+        await client.pushMessage({ to: adminId, messages: [message] });
+      } catch (e) {
+        console.error(`發送取消通知給 ${adminId} 失敗:`, e.message);
+      }
+    }
+  } catch (error) {
+    console.error('取消通知發送失敗:', error.message);
+  }
+}
+
 // ==================== Firebase 初始化 ====================
 let db = null;
 let useFirebase = false;
@@ -704,6 +750,95 @@ app.put('/api/registrations/:id', async (req, res) => {
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// 查詢報名
+app.get('/api/registrations/check', async (req, res) => {
+  try {
+    const { email, eventId } = req.query;
+    const regs = await getRegistrations();
+    const found = regs.find(r => r.email === email && r.eventId === eventId);
+    if (found) {
+      res.json({ found: true, registration: found });
+    } else {
+      res.json({ found: false });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 學員自行取消報名
+app.post('/api/registrations/:id/cancel', async (req, res) => {
+  try {
+    await updateRegistration(req.params.id, { status: 'cancelled' });
+    
+    // 取得報名和活動資料
+    const regs = await getRegistrations();
+    const reg = regs.find(r => r.id === req.params.id);
+    if (reg) {
+      // 減少活動報名人數
+      if (useFirebase) {
+        await db.collection('events').doc(reg.eventId).update({ registrations: admin.firestore.FieldValue.increment(-1) });
+      } else {
+        const ev = memoryData.events.find(e => e.id === reg.eventId);
+        if (ev && ev.registrations > 0) ev.registrations--;
+      }
+      
+      // 通知管理員
+      const events = await getEvents();
+      const event = events.find(e => e.id === reg.eventId);
+      if (event) {
+        sendCancelNotificationToAdmin(reg, event);
+      }
+    }
+    
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 寄送證書
+app.post('/api/send-certificate', async (req, res) => {
+  try {
+    const { registration, event } = req.body;
+    if (!resend) {
+      return res.json({ success: false, error: 'Email 未設定' });
+    }
+    
+    const senderEmail = process.env.SENDER_EMAIL || 'onboarding@resend.dev';
+    const formatDate = (d) => new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    
+    await resend.emails.send({
+      from: senderEmail,
+      to: registration.email,
+      subject: `🏆 Certificate - ${event.title}`,
+      html: `
+        <div style="font-family: 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background: linear-gradient(135deg, #6366f1, #a855f7); color: white; padding: 30px; border-radius: 16px 16px 0 0; text-align: center;">
+            <h1 style="margin: 0;">🏆 Certificate of Completion</h1>
+          </div>
+          <div style="background: #f8fafc; padding: 30px; border-radius: 0 0 16px 16px; text-align: center;">
+            <p style="font-size: 16px; color: #64748b;">This is to certify that</p>
+            <h2 style="font-size: 28px; color: #1e293b; margin: 20px 0;">${registration.name}</h2>
+            <p style="font-size: 16px; color: #64748b;">has successfully completed the workshop</p>
+            <h3 style="font-size: 22px; color: #6366f1; margin: 20px 0;">${event.title}</h3>
+            <p style="font-size: 14px; color: #94a3b8;">Date: ${formatDate(event.date)}</p>
+            <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 30px 0;">
+            <p style="color: #94a3b8; font-size: 12px;">
+              Congratulations on completing the workshop!<br>
+              We hope you enjoyed the learning experience.
+            </p>
+          </div>
+        </div>
+      `
+    });
+    
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
   }
 });
 app.get('/api/status', (req, res) => {

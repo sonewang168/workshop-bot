@@ -115,6 +115,8 @@ function PublicRegisterForm({ eventId, onSuccess }) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [mode, setMode] = useState('register'); // register, check, cancelled
+  const [foundReg, setFoundReg] = useState(null);
 
   useEffect(() => {
     API.getEvents().then(events => {
@@ -137,6 +139,36 @@ function PublicRegisterForm({ eventId, onSuccess }) {
     setSubmitting(false);
   };
 
+  const checkRegistration = async (e) => {
+    e.preventDefault();
+    if (!form.email) { alert('請填寫 Email'); return; }
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/registrations/check?email=${encodeURIComponent(form.email)}&eventId=${eventId}`);
+      const data = await res.json();
+      if (data.found) {
+        setFoundReg(data.registration);
+      } else {
+        alert('找不到您的報名紀錄');
+      }
+    } catch (err) {
+      alert('查詢失敗');
+    }
+    setSubmitting(false);
+  };
+
+  const cancelRegistration = async () => {
+    if (!confirm('確定要取消報名嗎？')) return;
+    setSubmitting(true);
+    try {
+      await fetch(`/api/registrations/${foundReg.id}/cancel`, { method: 'POST' });
+      setMode('cancelled');
+    } catch (err) {
+      alert('取消失敗');
+    }
+    setSubmitting(false);
+  };
+
   if (loading) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#0f0f1a' }}><div className="loading" style={{ width: '40px', height: '40px', borderColor: '#6366f1', borderTopColor: 'transparent' }}></div></div>;
 
   if (!event || event.status !== 'active') {
@@ -146,6 +178,18 @@ function PublicRegisterForm({ eventId, onSuccess }) {
           <div style={{ fontSize: '64px', marginBottom: '20px' }}>😢</div>
           <h2 style={{ marginBottom: '16px' }}>活動不存在或已結束</h2>
           <p style={{ color: '#64748b' }}>此報名連結已失效</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === 'cancelled') {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#0f0f1a' }}>
+        <div className="card" style={{ maxWidth: '500px', textAlign: 'center' }}>
+          <div style={{ fontSize: '64px', marginBottom: '20px' }}>👋</div>
+          <h2 style={{ marginBottom: '16px' }}>已取消報名</h2>
+          <p style={{ color: '#94a3b8' }}>您的報名已成功取消，期待下次參與！</p>
         </div>
       </div>
     );
@@ -181,31 +225,71 @@ function PublicRegisterForm({ eventId, onSuccess }) {
           <p style={{ opacity: 0.9 }}>👥 剩餘名額：{spotsLeft > 0 ? spotsLeft : '已額滿'} / {event.maxParticipants}</p>
         </div>
         
-        {spotsLeft <= 0 ? (
-          <div className="card" style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>😢</div>
-            <p>很抱歉，此活動已額滿</p>
-          </div>
-        ) : (
+        {/* 切換報名/查詢 */}
+        <div style={{ display: 'flex', marginBottom: '20px', gap: '10px' }}>
+          <button className={`btn ${mode === 'register' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1 }} onClick={() => { setMode('register'); setFoundReg(null); }}>📝 我要報名</button>
+          <button className={`btn ${mode === 'check' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1 }} onClick={() => { setMode('check'); setFoundReg(null); }}>🔍 查詢/取消</button>
+        </div>
+
+        {mode === 'register' && (
+          spotsLeft <= 0 ? (
+            <div className="card" style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '48px', marginBottom: '16px' }}>😢</div>
+              <p>很抱歉，此活動已額滿</p>
+            </div>
+          ) : (
+            <div className="card">
+              <h3 style={{ marginBottom: '20px' }}>填寫報名資料</h3>
+              <form onSubmit={handleSubmit}>
+                <div className="form-group">
+                  <label>姓名 *</label>
+                  <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="請輸入您的姓名" required />
+                </div>
+                <div className="form-group">
+                  <label>Email *</label>
+                  <input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} placeholder="example@mail.com" required />
+                </div>
+                <div className="form-group">
+                  <label>手機號碼</label>
+                  <input value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="0912345678" />
+                </div>
+                <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={submitting}>
+                  {submitting ? <><span className="loading"></span> 送出中...</> : '✅ 確認報名'}
+                </button>
+              </form>
+            </div>
+          )
+        )}
+
+        {mode === 'check' && !foundReg && (
           <div className="card">
-            <h3 style={{ marginBottom: '20px' }}>填寫報名資料</h3>
-            <form onSubmit={handleSubmit}>
+            <h3 style={{ marginBottom: '20px' }}>查詢報名狀態</h3>
+            <form onSubmit={checkRegistration}>
               <div className="form-group">
-                <label>姓名 *</label>
-                <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="請輸入您的姓名" required />
-              </div>
-              <div className="form-group">
-                <label>Email *</label>
+                <label>報名時的 Email *</label>
                 <input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} placeholder="example@mail.com" required />
               </div>
-              <div className="form-group">
-                <label>手機號碼</label>
-                <input value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="0912345678" />
-              </div>
               <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={submitting}>
-                {submitting ? <><span className="loading"></span> 送出中...</> : '✅ 確認報名'}
+                {submitting ? <><span className="loading"></span> 查詢中...</> : '🔍 查詢報名'}
               </button>
             </form>
+          </div>
+        )}
+
+        {mode === 'check' && foundReg && (
+          <div className="card">
+            <h3 style={{ marginBottom: '20px' }}>您的報名資料</h3>
+            <div style={{ background: '#0f0f1a', padding: '16px', borderRadius: '10px', marginBottom: '20px' }}>
+              <p><strong>姓名：</strong>{foundReg.name}</p>
+              <p><strong>Email：</strong>{foundReg.email}</p>
+              <p><strong>電話：</strong>{foundReg.phone || '-'}</p>
+              <p><strong>狀態：</strong><span className={`badge ${foundReg.status === 'confirmed' ? 'badge-green' : foundReg.status === 'cancelled' ? 'badge-red' : 'badge-yellow'}`}>{foundReg.status === 'confirmed' ? '已確認' : foundReg.status === 'cancelled' ? '已取消' : '待確認'}</span></p>
+            </div>
+            {foundReg.status !== 'cancelled' && (
+              <button className="btn btn-danger" style={{ width: '100%', justifyContent: 'center' }} onClick={cancelRegistration} disabled={submitting}>
+                {submitting ? <><span className="loading"></span> 處理中...</> : '❌ 取消報名'}
+              </button>
+            )}
           </div>
         )}
         
@@ -608,32 +692,85 @@ function PosterPage({ events, showToast }) {
 // 證書產生
 function CertificatesPage({ events, registrations, showToast }) {
   const [selectedEvent, setSelectedEvent] = useState('');
+  const [previewReg, setPreviewReg] = useState(null);
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  };
 
   const generateCert = (reg, ev) => {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ orientation: 'landscape' });
+    
+    // 背景
     doc.setFillColor(99, 102, 241);
     doc.rect(0, 0, 297, 210, 'F');
     doc.setFillColor(255, 255, 255);
     doc.roundedRect(20, 20, 257, 170, 10, 10, 'F');
+    
+    // 標題
     doc.setTextColor(99, 102, 241);
     doc.setFontSize(36);
-    doc.text('Certificate of Completion', 148.5, 60, { align: 'center' });
-    doc.setTextColor(50, 50, 50);
-    doc.setFontSize(24);
-    doc.text(reg.name, 148.5, 95, { align: 'center' });
+    doc.text('Certificate of Completion', 148.5, 55, { align: 'center' });
+    
+    // 分隔線
+    doc.setDrawColor(99, 102, 241);
+    doc.setLineWidth(0.5);
+    doc.line(80, 65, 217, 65);
+    
+    // This is to certify that
+    doc.setTextColor(100, 100, 100);
     doc.setFontSize(14);
-    doc.text(`has successfully completed`, 148.5, 115, { align: 'center' });
-    doc.setFontSize(18);
-    doc.text(ev.title, 148.5, 135, { align: 'center' });
+    doc.text('This is to certify that', 148.5, 85, { align: 'center' });
+    
+    // 姓名
+    doc.setTextColor(50, 50, 50);
+    doc.setFontSize(28);
+    doc.text(reg.name, 148.5, 105, { align: 'center' });
+    
+    // has successfully completed
+    doc.setTextColor(100, 100, 100);
+    doc.setFontSize(14);
+    doc.text('has successfully completed the workshop', 148.5, 122, { align: 'center' });
+    
+    // 活動名稱 (用英文或保持簡短)
+    doc.setTextColor(99, 102, 241);
+    doc.setFontSize(20);
+    const titleLines = doc.splitTextToSize(ev.title, 200);
+    doc.text(titleLines, 148.5, 140, { align: 'center' });
+    
+    // 日期
+    doc.setTextColor(100, 100, 100);
     doc.setFontSize(12);
-    doc.text(`Date: ${ev.date}`, 148.5, 160, { align: 'center' });
+    doc.text(`Date: ${formatDate(ev.date)}`, 148.5, 165, { align: 'center' });
+    
     doc.save(`certificate-${reg.name}.pdf`);
-    showToast(`已下載 ${reg.name} 的證書`, 'success');
+    showToast(`Certificate downloaded for ${reg.name}`, 'success');
+  };
+
+  const sendCertByEmail = async (reg, ev) => {
+    try {
+      const res = await fetch('/api/send-certificate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ registration: reg, event: ev })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`證書已寄送至 ${reg.email}`, 'success');
+      } else {
+        showToast(data.error || '寄送失敗', 'error');
+      }
+    } catch (e) {
+      showToast('寄送失敗', 'error');
+    }
   };
 
   const endedEvents = events.filter(e => e.status === 'ended');
   const eventRegs = selectedEvent ? registrations.filter(r => r.eventId === selectedEvent && r.status === 'confirmed') : [];
+  const selectedEventData = events.find(e => e.id === selectedEvent);
 
   return (
     <div>
@@ -641,12 +778,12 @@ function CertificatesPage({ events, registrations, showToast }) {
       <div className="card">
         <h3>📅 選擇已結束的活動</h3>
         {endedEvents.length === 0 ? (
-          <p style={{ color: '#64748b' }}>沒有已結束的活動</p>
+          <p style={{ color: '#64748b' }}>沒有已結束的活動。請先在「活動管理」將活動狀態改為「已結束」。</p>
         ) : (
           <select style={{ width: '100%', padding: '12px', background: '#0f0f1a', border: '1px solid #3a3a4a', borderRadius: '10px', color: '#e2e8f0' }}
             value={selectedEvent} onChange={e => setSelectedEvent(e.target.value)}>
             <option value="">-- 請選擇 --</option>
-            {endedEvents.map(ev => <option key={ev.id} value={ev.id}>{ev.title}</option>)}
+            {endedEvents.map(ev => <option key={ev.id} value={ev.id}>{ev.title} ({ev.date})</option>)}
           </select>
         )}
       </div>
@@ -656,21 +793,29 @@ function CertificatesPage({ events, registrations, showToast }) {
           {eventRegs.length === 0 ? (
             <p style={{ color: '#64748b' }}>此活動沒有已確認的學員</p>
           ) : (
-            <table>
-              <thead><tr><th>姓名</th><th>Email</th><th>操作</th></tr></thead>
-              <tbody>
-                {eventRegs.map(r => {
-                  const ev = events.find(e => e.id === r.eventId);
-                  return (
+            <>
+              <table>
+                <thead><tr><th>姓名</th><th>Email</th><th>操作</th></tr></thead>
+                <tbody>
+                  {eventRegs.map(r => (
                     <tr key={r.id}>
                       <td>{r.name}</td>
                       <td>{r.email}</td>
-                      <td><button className="btn btn-primary btn-sm" onClick={() => generateCert(r, ev)}>📄 下載證書</button></td>
+                      <td>
+                        <button className="btn btn-primary btn-sm" onClick={() => generateCert(r, selectedEventData)}>📄 下載</button>
+                        <button className="btn btn-secondary btn-sm" style={{ marginLeft: '8px' }} onClick={() => sendCertByEmail(r, selectedEventData)}>📧 寄送</button>
+                      </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{ marginTop: '20px', display: 'flex', gap: '10px' }}>
+                <button className="btn btn-primary" onClick={() => eventRegs.forEach(r => generateCert(r, selectedEventData))}>📄 下載全部證書</button>
+                <button className="btn btn-secondary" onClick={async () => {
+                  for (const r of eventRegs) { await sendCertByEmail(r, selectedEventData); }
+                }}>📧 寄送全部證書</button>
+              </div>
+            </>
           )}
         </div>
       )}
