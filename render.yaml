@@ -13,5 +13,5 @@ services:
         sync: false
       - key: ADMIN_USER_IDS
         sync: false
-      - key: WEB_URL
+      - key: FIREBASE_SERVICE_ACCOUNT
         sync: false
