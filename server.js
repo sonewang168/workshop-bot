@@ -470,6 +470,27 @@ app.get('/api/status', (req, res) => {
   });
 });
 
+// AI 文宣生成 API
+app.post('/api/generate-poster', async (req, res) => {
+  try {
+    const { event, style } = req.body;
+    const prompt = `你是活動文案專家。請為以下工作坊撰寫${style}的宣傳文案。
+
+活動：${event.title}
+說明：${event.description || ''}
+時間：${event.date} ${event.time || ''}
+地點：${event.location || ''}
+名額：${event.maxParticipants} 人
+
+直接輸出文案，約150-250字。`;
+    
+    const result = await callAI(prompt);
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // 靜態檔案
 app.use(express.static('public'));
 app.get('/', (req, res) => { res.sendFile(path.join(__dirname, 'public', 'index.html')); });
