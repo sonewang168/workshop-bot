@@ -157,7 +157,7 @@ function PublicRegisterForm({ eventId, onSuccess }) {
         <div className="card" style={{ maxWidth: '500px', textAlign: 'center' }}>
           <div style={{ fontSize: '64px', marginBottom: '20px' }}>🎉</div>
           <h2 style={{ marginBottom: '16px', color: '#10b981' }}>報名成功！</h2>
-          <p style={{ color: '#94a3b8', marginBottom: '20px' }}>我們已收到您的報名，稍後會寄送確認通知。</p>
+          <p style={{ color: '#94a3b8', marginBottom: '20px' }}>我們已收到您的報名，確認信已寄送至您的 Email。</p>
           <div style={{ background: '#1a1a2e', borderRadius: '12px', padding: '20px', textAlign: 'left' }}>
             <p><strong>活動：</strong>{event.title}</p>
             <p><strong>時間：</strong>{event.date} {event.time}{event.endTime ? ' - ' + event.endTime : ''}</p>
@@ -604,16 +604,26 @@ function SettingsPage({ status }) {
             <tr><td>🔥 Firebase</td><td><span className={`badge ${status.firebase ? 'badge-green' : 'badge-red'}`}>{status.firebase ? '已連線' : '離線'}</span></td></tr>
             <tr><td>🤖 OpenAI</td><td><span className={`badge ${status.openai ? 'badge-green' : 'badge-yellow'}`}>{status.openai ? '已連線' : '未設定'}</span></td></tr>
             <tr><td>✨ Gemini</td><td><span className={`badge ${status.gemini ? 'badge-green' : 'badge-yellow'}`}>{status.gemini ? '已連線' : '未設定'}</span></td></tr>
+            <tr><td>📧 Email (Resend)</td><td><span className={`badge ${status.email ? 'badge-green' : 'badge-yellow'}`}>{status.email ? '已連線' : '未設定'}</span></td></tr>
+            <tr><td>👥 管理員</td><td><span className={`badge ${status.adminCount > 0 ? 'badge-green' : 'badge-yellow'}`}>{status.adminCount > 0 ? status.adminCount + ' 人' : '未設定'}</span></td></tr>
           </tbody>
         </table>
       </div>
       <div className="card">
-        <h3>📝 說明</h3>
+        <h3>📝 環境變數說明</h3>
         <p style={{ color: '#94a3b8', lineHeight: '1.8' }}>
-          API Key 設定請在 Render 環境變數中設定：<br/>
+          請在 Render 環境變數中設定：<br/><br/>
+          <strong>必要：</strong><br/>
+          • <code>LINE_CHANNEL_ACCESS_TOKEN</code> - LINE Bot Token<br/>
+          • <code>LINE_CHANNEL_SECRET</code> - LINE Bot Secret<br/>
+          • <code>FIREBASE_SERVICE_ACCOUNT</code> - Firebase JSON<br/><br/>
+          <strong>AI 功能：</strong><br/>
           • <code>OPENAI_API_KEY</code> - OpenAI API 金鑰<br/>
-          • <code>GEMINI_API_KEY</code> - Google Gemini API 金鑰<br/>
-          • <code>FIREBASE_SERVICE_ACCOUNT</code> - Firebase 服務帳戶 JSON
+          • <code>GEMINI_API_KEY</code> - Gemini API 金鑰<br/><br/>
+          <strong>通知功能：</strong><br/>
+          • <code>RESEND_API_KEY</code> - Resend API 金鑰<br/>
+          • <code>SENDER_EMAIL</code> - 寄件人 Email（預設 onboarding@resend.dev）<br/>
+          • <code>ADMIN_USER_IDS</code> - 管理員 LINE User ID（多人用逗號分隔）
         </p>
       </div>
     </div>

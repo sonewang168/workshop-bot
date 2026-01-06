@@ -3,10 +3,144 @@ const line = require('@line/bot-sdk');
 const cors = require('cors');
 const path = require('path');
 const admin = require('firebase-admin');
+const { Resend } = require('resend');
 require('dotenv').config();
 
 const app = express();
 app.use(cors());
+
+// ==================== Resend Email 設定 ====================
+let resend = null;
+if (process.env.RESEND_API_KEY) {
+  resend = new Resend(process.env.RESEND_API_KEY);
+  console.log('✅ Resend Email 已設定');
+}
+
+// ==================== LINE Bot 設定 ====================
+const lineConfig = {
+  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || '',
+  channelSecret: process.env.LINE_CHANNEL_SECRET || ''
+};
+const client = new line.messagingApi.MessagingApiClient({
+  channelAccessToken: lineConfig.channelAccessToken
+});
+const ADMIN_IDS = (process.env.ADMIN_USER_IDS || '').split(',').filter(Boolean);
+
+// ==================== 通知功能 ====================
+
+// 發送 Email 確認信給學員
+async function sendConfirmationEmail(registration, event) {
+  if (!resend) {
+    console.log('⚠️ Email 未設定，跳過發送');
+    return false;
+  }
+  
+  const senderEmail = process.env.SENDER_EMAIL || 'onboarding@resend.dev';
+  
+  try {
+    await resend.emails.send({
+      from: senderEmail,
+      to: registration.email,
+      subject: `✅ 報名成功 - ${event.title}`,
+      html: `
+        <div style="font-family: 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background: linear-gradient(135deg, #6366f1, #a855f7); color: white; padding: 30px; border-radius: 16px 16px 0 0; text-align: center;">
+            <h1 style="margin: 0;">🎉 報名成功！</h1>
+          </div>
+          <div style="background: #f8fafc; padding: 30px; border-radius: 0 0 16px 16px;">
+            <p style="font-size: 18px;">親愛的 <strong>${registration.name}</strong> 您好，</p>
+            <p>感謝您報名參加我們的活動，以下是您的報名資訊：</p>
+            
+            <div style="background: white; padding: 20px; border-radius: 12px; margin: 20px 0; border-left: 4px solid #6366f1;">
+              <h2 style="color: #6366f1; margin-top: 0;">📅 ${event.title}</h2>
+              <p><strong>📆 日期：</strong>${event.date}</p>
+              <p><strong>⏰ 時間：</strong>${event.time}${event.endTime ? ' - ' + event.endTime : ''}</p>
+              <p><strong>📍 地點：</strong>${event.location}</p>
+            </div>
+            
+            <p style="color: #64748b; font-size: 14px;">
+              如有任何問題，請回覆此信件聯繫我們。<br>
+              期待在活動中見到您！
+            </p>
+            
+            <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;">
+            <p style="color: #94a3b8; font-size: 12px; text-align: center;">
+              此信件由工作坊管理系統自動發送
+            </p>
+          </div>
+        </div>
+      `
+    });
+    
+    console.log(`✅ Email 已發送至 ${registration.email}`);
+    return true;
+  } catch (error) {
+    console.error('❌ Email 發送失敗:', error.message);
+    return false;
+  }
+}
+
+// 發送 LINE 通知給管理員
+async function sendAdminLineNotification(registration, event) {
+  if (ADMIN_IDS.length === 0) {
+    console.log('⚠️ 未設定管理員，跳過 LINE 通知');
+    return false;
+  }
+  
+  try {
+    const message = {
+      type: 'flex',
+      altText: `新報名通知 - ${registration.name}`,
+      contents: {
+        type: 'bubble',
+        header: {
+          type: 'box',
+          layout: 'vertical',
+          contents: [
+            { type: 'text', text: '🔔 新報名通知', weight: 'bold', size: 'lg', color: '#ffffff' }
+          ],
+          backgroundColor: '#10b981',
+          paddingAll: '15px'
+        },
+        body: {
+          type: 'box',
+          layout: 'vertical',
+          contents: [
+            { type: 'text', text: `👤 ${registration.name}`, weight: 'bold', size: 'md' },
+            { type: 'text', text: `📧 ${registration.email}`, size: 'sm', color: '#666666', margin: 'sm' },
+            { type: 'text', text: `📱 ${registration.phone || '未填寫'}`, size: 'sm', color: '#666666', margin: 'sm' },
+            { type: 'separator', margin: 'lg' },
+            { type: 'text', text: `📅 ${event.title}`, size: 'sm', color: '#6366f1', margin: 'lg', weight: 'bold' },
+            { type: 'text', text: `報名人數：${(event.registrations || 0) + 1}/${event.maxParticipants}`, size: 'xs', color: '#888888', margin: 'sm' }
+          ],
+          paddingAll: '15px'
+        },
+        footer: {
+          type: 'box',
+          layout: 'horizontal',
+          contents: [
+            { type: 'button', action: { type: 'message', label: '查看報名', text: '最新報名' }, style: 'primary', height: 'sm' }
+          ],
+          paddingAll: '10px'
+        }
+      }
+    };
+    
+    // 發送給所有管理員
+    for (const adminId of ADMIN_IDS) {
+      try {
+        await client.pushMessage({ to: adminId, messages: [message] });
+        console.log(`✅ LINE 通知已發送給管理員 ${adminId}`);
+      } catch (e) {
+        console.error(`❌ 發送給 ${adminId} 失敗:`, e.message);
+      }
+    }
+    return true;
+  } catch (error) {
+    console.error('❌ LINE 通知發送失敗:', error.message);
+    return false;
+  }
+}
 
 // ==================== Firebase 初始化 ====================
 let db = null;
@@ -34,16 +168,6 @@ async function initFirebase() {
   }
 }
 initFirebase();
-
-// ==================== LINE Bot 設定 ====================
-const lineConfig = {
-  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || '',
-  channelSecret: process.env.LINE_CHANNEL_SECRET || ''
-};
-const client = new line.messagingApi.MessagingApiClient({
-  channelAccessToken: lineConfig.channelAccessToken
-});
-const ADMIN_IDS = (process.env.ADMIN_USER_IDS || '').split(',').filter(Boolean);
 
 // ==================== 記憶體資料 ====================
 let memoryData = {
@@ -124,24 +248,41 @@ async function getRegistrations(eventId = null) {
   }
 }
 
-async function addRegistration(regData) {
+async function addRegistration(regData, sendNotifications = true) {
   const newReg = { ...regData, status: 'pending', createdAt: new Date().toISOString() };
+  let event = null;
+  
   if (!useFirebase) {
     newReg.id = Date.now().toString();
     memoryData.registrations.unshift(newReg);
-    const event = memoryData.events.find(e => e.id === regData.eventId);
+    event = memoryData.events.find(e => e.id === regData.eventId);
     if (event) event.registrations++;
-    return newReg;
+  } else {
+    try {
+      const docRef = await db.collection('registrations').add(newReg);
+      await db.collection('events').doc(regData.eventId).update({ registrations: admin.firestore.FieldValue.increment(1) });
+      newReg.id = docRef.id;
+      
+      // 取得活動資料
+      const eventDoc = await db.collection('events').doc(regData.eventId).get();
+      event = eventDoc.exists ? { id: eventDoc.id, ...eventDoc.data() } : null;
+    } catch (e) {
+      newReg.id = Date.now().toString();
+      memoryData.registrations.unshift(newReg);
+      event = memoryData.events.find(e => e.id === regData.eventId);
+    }
   }
-  try {
-    const docRef = await db.collection('registrations').add(newReg);
-    await db.collection('events').doc(regData.eventId).update({ registrations: admin.firestore.FieldValue.increment(1) });
-    return { id: docRef.id, ...newReg };
-  } catch (e) {
-    newReg.id = Date.now().toString();
-    memoryData.registrations.unshift(newReg);
-    return newReg;
+  
+  // 發送通知
+  if (sendNotifications && event) {
+    // 非同步發送，不阻擋回應
+    setImmediate(async () => {
+      await sendConfirmationEmail(newReg, event);
+      await sendAdminLineNotification(newReg, event);
+    });
   }
+  
+  return newReg;
 }
 
 // ==================== AI API（支援 OpenAI + Gemini）====================
@@ -439,10 +580,12 @@ ${aiStatus}`;
       const status = useFirebase ? '✅ Firebase Firestore 已連線' : '⚠️ 使用記憶體模式';
       messages.push({ type: 'text', text: `資料庫狀態：\n${status}` });
     }
-    else if (text === 'ai' || text === 'AI狀態') {
+    else if (text === 'ai' || text === 'AI狀態' || text === '狀態') {
       const openai = process.env.OPENAI_API_KEY ? '✅ 已設定' : '❌ 未設定';
       const gemini = process.env.GEMINI_API_KEY ? '✅ 已設定' : '❌ 未設定';
-      messages.push({ type: 'text', text: `AI 狀態：\n\n🤖 OpenAI: ${openai}\n✨ Gemini: ${gemini}\n\n優先使用 OpenAI，備援 Gemini` });
+      const email = process.env.RESEND_API_KEY ? '✅ 已設定' : '❌ 未設定';
+      const admins = ADMIN_IDS.length > 0 ? `✅ ${ADMIN_IDS.length} 人` : '❌ 未設定';
+      messages.push({ type: 'text', text: `系統狀態：\n\n🤖 OpenAI: ${openai}\n✨ Gemini: ${gemini}\n📧 Email: ${email}\n👥 管理員: ${admins}\n\n報名通知：${email === '✅ 已設定' ? '學員收 Email + 管理員收 LINE' : '僅管理員收 LINE'}` });
     }
     else {
       messages.push({ type: 'text', text: `您好！我是工作坊管理助手 🎓\n\n請輸入：總覽、活動列表、最新報名、生成文宣、說明`, quickReply: createQuickReply() });
@@ -484,6 +627,8 @@ app.get('/api/status', (req, res) => {
     firebase: useFirebase,
     openai: !!process.env.OPENAI_API_KEY,
     gemini: !!process.env.GEMINI_API_KEY,
+    email: !!process.env.RESEND_API_KEY,
+    adminCount: ADMIN_IDS.length,
     timestamp: new Date().toISOString()
   });
 });
@@ -519,4 +664,6 @@ app.listen(PORT, () => {
   console.log(`🔥 Firebase: ${useFirebase ? '已連線' : '記憶體模式'}`);
   console.log(`🤖 OpenAI: ${process.env.OPENAI_API_KEY ? '已設定' : '未設定'}`);
   console.log(`✨ Gemini: ${process.env.GEMINI_API_KEY ? '已設定' : '未設定'}`);
+  console.log(`📧 Resend: ${process.env.RESEND_API_KEY ? '已設定' : '未設定'}`);
+  console.log(`👥 管理員: ${ADMIN_IDS.length > 0 ? ADMIN_IDS.length + ' 人' : '未設定'}`);
 });
