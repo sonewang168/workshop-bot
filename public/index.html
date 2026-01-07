@@ -65,7 +65,22 @@
         @keyframes spin { to { transform: rotate(360deg); } }
         .style-btn { padding: 10px 20px; margin: 5px; border-radius: 20px; border: 2px solid #3a3a4a; background: transparent; color: #94a3b8; cursor: pointer; transition: all 0.2s; }
         .style-btn:hover, .style-btn.active { border-color: #6366f1; background: rgba(99, 102, 241, 0.1); color: #6366f1; }
-        @media (max-width: 768px) { .sidebar { display: none; } .form-row { grid-template-columns: 1fr; } }
+        
+        /* 手機版底部導航 */
+        .mobile-nav { display: none; position: fixed; bottom: 0; left: 0; right: 0; background: #1a1a2e; border-top: 1px solid #2a2a4a; padding: 8px 0; z-index: 1000; }
+        .mobile-nav-inner { display: flex; justify-content: space-around; align-items: center; }
+        .mobile-nav-item { display: flex; flex-direction: column; align-items: center; padding: 8px 12px; color: #64748b; font-size: 10px; cursor: pointer; border-radius: 8px; transition: all 0.2s; }
+        .mobile-nav-item span { font-size: 20px; margin-bottom: 4px; }
+        .mobile-nav-item.active { color: #a855f7; background: rgba(168, 85, 247, 0.1); }
+        
+        @media (max-width: 768px) { 
+          .sidebar { display: none; } 
+          .form-row { grid-template-columns: 1fr; } 
+          .mobile-nav { display: block; }
+          .content { padding-bottom: 80px; }
+          .header { flex-direction: column; gap: 10px; align-items: flex-start; }
+          .header h1 { font-size: 20px; }
+        }
     </style>
 </head>
 <body>
@@ -1033,6 +1048,29 @@ function SettingsPage({ status }) {
   );
 }
 
+// 手機版底部導航
+function MobileNav({ page, setPage }) {
+  const items = [
+    { id: 'dashboard', icon: '📊', label: '儀表板' },
+    { id: 'events', icon: '📅', label: '活動' },
+    { id: 'registrations', icon: '📋', label: '報名' },
+    { id: 'poster', icon: '🎨', label: '文宣' },
+    { id: 'certificates', icon: '🏆', label: '證書' },
+    { id: 'settings', icon: '⚙️', label: '設定' }
+  ];
+  return (
+    <div className="mobile-nav">
+      <div className="mobile-nav-inner">
+        {items.map(item => (
+          <div key={item.id} className={`mobile-nav-item ${page === item.id ? 'active' : ''}`} onClick={() => setPage(item.id)}>
+            <span>{item.icon}</span>{item.label}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // 主程式
 function App() {
   const [page, setPage] = useState('dashboard');
@@ -1076,6 +1114,7 @@ function App() {
         {page === 'certificates' && <CertificatesPage events={events} registrations={registrations} showToast={showToast} />}
         {page === 'settings' && <SettingsPage status={status} />}
       </div>
+      <MobileNav page={page} setPage={setPage} />
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </div>
   );
