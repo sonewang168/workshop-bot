@@ -440,6 +440,13 @@ function EventsPage({ events, onRefresh, showToast }) {
   const handleSubmit = async () => {
     if (!form.title || !form.date) { showToast('請填寫活動名稱和日期', 'error'); return; }
     
+    // 驗證日期年份 (2020-2050)
+    const year = parseInt(form.date.split('-')[0]);
+    if (year < 2020 || year > 2050) {
+      showToast('日期年份請輸入 2020-2050 之間的西元年', 'error');
+      return;
+    }
+    
     if (editing) {
       await fetch(`/api/events/${editing.id}`, {
         method: 'PUT',
@@ -611,7 +618,7 @@ function EventsPage({ events, onRefresh, showToast }) {
             <div className="form-row">
               <div className="form-group">
                 <label>日期 *</label>
-                <input type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
+                <input type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} min="2020-01-01" max="2050-12-31" />
               </div>
               <div className="form-group">
                 <label>開始時間</label>
