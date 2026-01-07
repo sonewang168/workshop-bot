@@ -325,8 +325,11 @@ function Sidebar({ page, setPage }) {
     { id: 'dashboard', icon: '📊', label: '儀表板' },
     { id: 'events', icon: '📅', label: '活動管理' },
     { id: 'registrations', icon: '📋', label: '報名管理' },
+    { id: 'notifications', icon: '🔔', label: '通知中心' },
     { id: 'poster', icon: '🎨', label: 'AI 文宣' },
     { id: 'certificates', icon: '🏆', label: '證書產生' },
+    { id: 'showcase', icon: '🎪', label: '學員作品牆' },
+    { id: 'guide', icon: '📖', label: '操作手冊' },
     { id: 'settings', icon: '⚙️', label: '系統設定' }
   ];
   return (
@@ -1048,26 +1051,470 @@ function SettingsPage({ status }) {
   );
 }
 
-// 手機版底部導航
-function MobileNav({ page, setPage }) {
-  const items = [
-    { id: 'dashboard', icon: '📊', label: '儀表板' },
-    { id: 'events', icon: '📅', label: '活動' },
-    { id: 'registrations', icon: '📋', label: '報名' },
-    { id: 'poster', icon: '🎨', label: '文宣' },
-    { id: 'certificates', icon: '🏆', label: '證書' },
-    { id: 'settings', icon: '⚙️', label: '設定' }
-  ];
+// 通知中心
+function NotificationsPage({ events, registrations, showToast }) {
+  const [sending, setSending] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState('');
+  const [notifyType, setNotifyType] = useState('reminder');
+  const [customMessage, setCustomMessage] = useState('');
+
+  const activeEvents = events.filter(e => e.status === 'active');
+
+  const sendReminder = async () => {
+    if (!selectedEvent) { showToast('請選擇活動', 'error'); return; }
+    setSending(true);
+    try {
+      const res = await fetch('/api/send-notification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId: selectedEvent, type: notifyType, customMessage })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`已發送 ${data.sent} 封通知！`, 'success');
+      } else {
+        showToast(data.error || '發送失敗', 'error');
+      }
+    } catch (e) {
+      showToast('發送失敗', 'error');
+    }
+    setSending(false);
+  };
+
+  const generateAIMessage = async () => {
+    if (!selectedEvent) { showToast('請選擇活動', 'error'); return; }
+    setSending(true);
+    try {
+      const ev = events.find(e => e.id === selectedEvent);
+      const res = await fetch('/api/generate-notification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event: ev, type: notifyType })
+      });
+      const data = await res.json();
+      if (data.text) {
+        setCustomMessage(data.text);
+        showToast('AI 已生成通知內容', 'success');
+      }
+    } catch (e) {
+      showToast('生成失敗', 'error');
+    }
+    setSending(false);
+  };
+
+  const selectedEventData = events.find(e => e.id === selectedEvent);
+  const eventRegs = selectedEvent ? registrations.filter(r => r.eventId === selectedEvent && r.status === 'confirmed') : [];
+
   return (
-    <div className="mobile-nav">
-      <div className="mobile-nav-inner">
-        {items.map(item => (
-          <div key={item.id} className={`mobile-nav-item ${page === item.id ? 'active' : ''}`} onClick={() => setPage(item.id)}>
-            <span>{item.icon}</span>{item.label}
+    <div>
+      <div className="header"><h1>🔔 通知中心</h1></div>
+      
+      <div className="card">
+        <h3>📅 選擇活動</h3>
+        {activeEvents.length === 0 ? (
+          <p style={{ color: '#64748b' }}>沒有進行中的活動</p>
+        ) : (
+          <select style={{ width: '100%', padding: '12px', background: '#0f0f1a', border: '1px solid #3a3a4a', borderRadius: '10px', color: '#e2e8f0' }}
+            value={selectedEvent} onChange={e => setSelectedEvent(e.target.value)}>
+            <option value="">-- 請選擇 --</option>
+            {activeEvents.map(ev => <option key={ev.id} value={ev.id}>{ev.title}（{ev.date}）</option>)}
+          </select>
+        )}
+        {selectedEventData && (
+          <div style={{ marginTop: '15px', padding: '15px', background: '#0f0f1a', borderRadius: '10px' }}>
+            <p>📍 {selectedEventData.location}</p>
+            <p>⏰ {selectedEventData.time}{selectedEventData.endTime ? ' - ' + selectedEventData.endTime : ''}</p>
+            <p>👥 已確認報名：{eventRegs.length} 人</p>
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <h3>📨 通知類型</h3>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+          {[
+            { id: 'reminder', label: '⏰ 上課提醒', desc: '活動前一天發送' },
+            { id: 'start', label: '🚀 活動開始', desc: '活動當天發送' },
+            { id: 'material', label: '📚 課前資料', desc: '提供課前準備資訊' },
+            { id: 'feedback', label: '📝 課後回饋', desc: '活動結束後發送' },
+            { id: 'custom', label: '✏️ 自訂訊息', desc: '自行編寫內容' }
+          ].map(t => (
+            <button key={t.id} className={`style-btn ${notifyType === t.id ? 'active' : ''}`} onClick={() => setNotifyType(t.id)} style={{ flex: '1', minWidth: '120px' }}>
+              {t.label}<br/><small style={{ opacity: 0.7 }}>{t.desc}</small>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+          <h3 style={{ margin: 0 }}>📝 通知內容</h3>
+          <button className="btn btn-secondary btn-sm" onClick={generateAIMessage} disabled={sending || !selectedEvent}>
+            ✨ AI 生成
+          </button>
+        </div>
+        <textarea rows="6" value={customMessage} onChange={e => setCustomMessage(e.target.value)}
+          placeholder="輸入通知內容，或點擊「AI 生成」自動產生..."
+          style={{ width: '100%', padding: '15px', background: '#0f0f1a', border: '1px solid #3a3a4a', borderRadius: '10px', color: '#e2e8f0', resize: 'vertical' }} />
+      </div>
+
+      <div className="card">
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <button className="btn btn-primary" onClick={sendReminder} disabled={sending || !selectedEvent || eventRegs.length === 0}>
+            {sending ? <><span className="loading"></span> 發送中...</> : `📧 發送 Email 通知（${eventRegs.length} 人）`}
+          </button>
+          <button className="btn btn-secondary" onClick={async () => {
+            if (!selectedEvent) return;
+            setSending(true);
+            try {
+              const res = await fetch('/api/send-line-notification', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ eventId: selectedEvent, message: customMessage })
+              });
+              const data = await res.json();
+              showToast(data.success ? 'LINE 通知已發送' : '發送失敗', data.success ? 'success' : 'error');
+            } catch (e) { showToast('發送失敗', 'error'); }
+            setSending(false);
+          }} disabled={sending || !selectedEvent}>
+            📱 發送 LINE 通知（管理員）
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 學員作品牆
+function ShowcasePage({ events, showToast }) {
+  const [works, setWorks] = useState([]);
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({ eventId: '', studentName: '', title: '', description: '', imageUrl: '', link: '' });
+
+  useEffect(() => {
+    fetch('/api/showcase').then(r => r.json()).then(data => setWorks(data || [])).catch(() => {});
+  }, []);
+
+  const addWork = async () => {
+    if (!form.studentName || !form.title) { showToast('請填寫學員姓名和作品標題', 'error'); return; }
+    try {
+      const res = await fetch('/api/showcase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, createdAt: new Date().toISOString() })
+      });
+      const data = await res.json();
+      setWorks(prev => [data, ...prev]);
+      setForm({ eventId: '', studentName: '', title: '', description: '', imageUrl: '', link: '' });
+      setShowAdd(false);
+      showToast('作品已新增！', 'success');
+    } catch (e) {
+      showToast('新增失敗', 'error');
+    }
+  };
+
+  const deleteWork = async (id) => {
+    if (!confirm('確定要刪除此作品？')) return;
+    try {
+      await fetch(`/api/showcase/${id}`, { method: 'DELETE' });
+      setWorks(prev => prev.filter(w => w.id !== id));
+      showToast('已刪除', 'success');
+    } catch (e) {
+      showToast('刪除失敗', 'error');
+    }
+  };
+
+  const endedEvents = events.filter(e => e.status === 'ended');
+
+  return (
+    <div>
+      <div className="header">
+        <h1>🎪 學員作品牆</h1>
+        <button className="btn btn-primary" onClick={() => setShowAdd(true)}>＋ 新增作品</button>
+      </div>
+
+      {works.length === 0 ? (
+        <div className="card">
+          <div className="empty-state">
+            <div className="icon">🎨</div>
+            <p>還沒有學員作品</p>
+            <button className="btn btn-primary" style={{ marginTop: '20px' }} onClick={() => setShowAdd(true)}>新增第一個作品</button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
+          {works.map(work => {
+            const ev = events.find(e => e.id === work.eventId);
+            return (
+              <div key={work.id} className="card" style={{ margin: 0 }}>
+                {work.imageUrl && (
+                  <div style={{ marginBottom: '15px', borderRadius: '10px', overflow: 'hidden' }}>
+                    <img src={work.imageUrl} alt={work.title} style={{ width: '100%', height: '180px', objectFit: 'cover' }} />
+                  </div>
+                )}
+                <h3 style={{ marginBottom: '10px' }}>{work.title}</h3>
+                <p style={{ color: '#a5b4fc', marginBottom: '10px' }}>👤 {work.studentName}</p>
+                {ev && <p style={{ color: '#64748b', fontSize: '12px', marginBottom: '10px' }}>📅 {ev.title}</p>}
+                {work.description && <p style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '15px' }}>{work.description}</p>}
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  {work.link && <a href={work.link} target="_blank" className="btn btn-secondary btn-sm">🔗 查看作品</a>}
+                  <button className="btn btn-danger btn-sm" onClick={() => deleteWork(work.id)}>🗑️ 刪除</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {showAdd && (
+        <div className="modal-overlay" onClick={() => setShowAdd(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h2>➕ 新增學員作品</h2>
+            <div className="form-group">
+              <label>來源活動</label>
+              <select value={form.eventId} onChange={e => setForm({...form, eventId: e.target.value})}
+                style={{ width: '100%', padding: '12px', background: '#0f0f1a', border: '1px solid #3a3a4a', borderRadius: '10px', color: '#e2e8f0' }}>
+                <option value="">-- 選擇活動（選填）--</option>
+                {endedEvents.map(ev => <option key={ev.id} value={ev.id}>{ev.title}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>學員姓名 *</label>
+              <input value={form.studentName} onChange={e => setForm({...form, studentName: e.target.value})} placeholder="王小明" />
+            </div>
+            <div className="form-group">
+              <label>作品標題 *</label>
+              <input value={form.title} onChange={e => setForm({...form, title: e.target.value})} placeholder="我的 AI 繪圖作品" />
+            </div>
+            <div className="form-group">
+              <label>作品說明</label>
+              <textarea rows="3" value={form.description} onChange={e => setForm({...form, description: e.target.value})} placeholder="描述作品內容..." />
+            </div>
+            <div className="form-group">
+              <label>圖片網址</label>
+              <input value={form.imageUrl} onChange={e => setForm({...form, imageUrl: e.target.value})} placeholder="https://..." />
+            </div>
+            <div className="form-group">
+              <label>作品連結</label>
+              <input value={form.link} onChange={e => setForm({...form, link: e.target.value})} placeholder="https://..." />
+            </div>
+            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+              <button className="btn btn-primary" onClick={addWork}>儲存作品</button>
+              <button className="btn btn-secondary" onClick={() => setShowAdd(false)}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 操作手冊
+function GuidePage({ showToast }) {
+  const guides = [
+    {
+      title: '🚀 快速開始',
+      steps: [
+        '1. 在「活動管理」新增活動，填寫基本資料',
+        '2. 將活動狀態改為「進行中」',
+        '3. 使用「報名連結」或「QR Code」分享給學員',
+        '4. 在「報名管理」確認報名',
+        '5. 使用「通知中心」發送上課提醒',
+        '6. 活動結束後在「證書產生」發送證書'
+      ]
+    },
+    {
+      title: '🎨 AI 文宣使用',
+      steps: [
+        '1. 進入「AI 文宣」頁面',
+        '2. 選擇要產生文宣的活動',
+        '3. 選擇文宣風格（社群/正式/活潑/Email）',
+        '4. 點擊「同時產生兩版文宣」',
+        '5. 比較 OpenAI 和 Gemini 的結果',
+        '6. 點擊「挑選保存」保存喜歡的版本'
+      ]
+    },
+    {
+      title: '🔔 通知功能說明',
+      steps: [
+        '• 上課提醒：活動前一天發送',
+        '• 活動開始：活動當天發送',
+        '• 課前資料：提供準備事項',
+        '• 課後回饋：收集學員意見',
+        '• 自訂訊息：完全自訂內容',
+        '💡 可使用 AI 自動生成通知內容'
+      ]
+    },
+    {
+      title: '📱 LINE Bot 指令',
+      steps: [
+        '• 總覽 - 查看系統統計',
+        '• 活動列表 - 查看所有活動',
+        '• 最新報名 - 查看報名資料',
+        '• 報名連結 - 取得 QR Code',
+        '• 生成文宣 - AI 產生文案',
+        '• 確認全部 - 批次確認報名',
+        '• 網頁 - 開啟管理後台'
+      ]
+    },
+    {
+      title: '⚙️ 環境變數設定',
+      steps: [
+        '必要設定：',
+        '• LINE_CHANNEL_ACCESS_TOKEN',
+        '• LINE_CHANNEL_SECRET', 
+        '• FIREBASE_SERVICE_ACCOUNT',
+        '',
+        'AI 功能：',
+        '• OPENAI_API_KEY',
+        '• GEMINI_API_KEY',
+        '',
+        '通知功能：',
+        '• RESEND_API_KEY',
+        '• ADMIN_USER_IDS'
+      ]
+    }
+  ];
+
+  const exportGuide = () => {
+    const content = guides.map(g => `## ${g.title}\n\n${g.steps.join('\n')}`).join('\n\n---\n\n');
+    const blob = new Blob([`# 工作坊管理系統操作手冊\n\n${content}`], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'workshop-guide.md';
+    a.click();
+    showToast('手冊已下載', 'success');
+  };
+
+  const copySetupGuide = () => {
+    const setup = `# 工作坊管理系統部署指南
+
+## 1. GitHub 設定
+\`\`\`bash
+git clone https://github.com/YOUR_USERNAME/workshop-bot-firebase.git
+cd workshop-bot-firebase
+\`\`\`
+
+## 2. Render 部署
+1. 前往 https://render.com
+2. 建立 Web Service
+3. 連結 GitHub Repository
+4. 設定環境變數
+
+## 3. 環境變數
+LINE_CHANNEL_ACCESS_TOKEN=你的_TOKEN
+LINE_CHANNEL_SECRET=你的_SECRET
+FIREBASE_SERVICE_ACCOUNT={"type":"service_account",...}
+OPENAI_API_KEY=sk-...
+GEMINI_API_KEY=AI...
+RESEND_API_KEY=re_...
+ADMIN_USER_IDS=Uxxxxxxx
+
+## 4. LINE Webhook 設定
+Webhook URL: https://your-app.onrender.com/webhook
+
+## 5. 完成！
+開啟 https://your-app.onrender.com 開始使用`;
+    
+    navigator.clipboard.writeText(setup);
+    showToast('部署指南已複製', 'success');
+  };
+
+  return (
+    <div>
+      <div className="header">
+        <h1>📖 操作手冊</h1>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button className="btn btn-primary" onClick={exportGuide}>📥 下載手冊</button>
+          <button className="btn btn-secondary" onClick={copySetupGuide}>📋 複製部署指南</button>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '20px' }}>
+        {guides.map((guide, i) => (
+          <div key={i} className="card" style={{ margin: 0 }}>
+            <h3 style={{ marginBottom: '15px' }}>{guide.title}</h3>
+            <div style={{ color: '#94a3b8', lineHeight: '2' }}>
+              {guide.steps.map((step, j) => (
+                <div key={j}>{step}</div>
+              ))}
+            </div>
           </div>
         ))}
       </div>
+
+      <div className="card" style={{ marginTop: '20px' }}>
+        <h3>💡 延伸做法建議</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '15px', marginTop: '15px' }}>
+          {[
+            { icon: '🎯', title: '整合 Google Calendar', desc: '活動自動同步到行事曆' },
+            { icon: '📊', title: '報名數據分析', desc: '學員來源、轉換率統計' },
+            { icon: '🤖', title: 'AI 客服機器人', desc: '自動回答常見問題' },
+            { icon: '💳', title: '線上付款整合', desc: '串接金流收取報名費' },
+            { icon: '📹', title: '線上課程平台', desc: '整合錄影、直播功能' },
+            { icon: '🏅', title: '學習歷程記錄', desc: '追蹤學員學習進度' }
+          ].map((item, i) => (
+            <div key={i} style={{ background: '#0f0f1a', padding: '15px', borderRadius: '10px' }}>
+              <div style={{ fontSize: '24px', marginBottom: '10px' }}>{item.icon}</div>
+              <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>{item.title}</div>
+              <div style={{ color: '#64748b', fontSize: '12px' }}>{item.desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
+  );
+}
+
+// 手機版底部導航
+function MobileNav({ page, setPage }) {
+  const items = [
+    { id: 'dashboard', icon: '📊', label: '首頁' },
+    { id: 'events', icon: '📅', label: '活動' },
+    { id: 'registrations', icon: '📋', label: '報名' },
+    { id: 'notifications', icon: '🔔', label: '通知' },
+    { id: 'showcase', icon: '🎪', label: '作品' },
+    { id: 'more', icon: '⋯', label: '更多' }
+  ];
+  const [showMore, setShowMore] = useState(false);
+  
+  const moreItems = [
+    { id: 'poster', icon: '🎨', label: 'AI 文宣' },
+    { id: 'certificates', icon: '🏆', label: '證書' },
+    { id: 'guide', icon: '📖', label: '手冊' },
+    { id: 'settings', icon: '⚙️', label: '設定' }
+  ];
+  
+  return (
+    <>
+      {showMore && (
+        <div style={{ position: 'fixed', bottom: '70px', left: 0, right: 0, background: '#1a1a2e', borderTop: '1px solid #2a2a4a', padding: '10px', zIndex: 999 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-around' }}>
+            {moreItems.map(item => (
+              <div key={item.id} className={`mobile-nav-item ${page === item.id ? 'active' : ''}`} onClick={() => { setPage(item.id); setShowMore(false); }}>
+                <span>{item.icon}</span>{item.label}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="mobile-nav">
+        <div className="mobile-nav-inner">
+          {items.map(item => (
+            item.id === 'more' ? (
+              <div key={item.id} className={`mobile-nav-item ${showMore ? 'active' : ''}`} onClick={() => setShowMore(!showMore)}>
+                <span>{item.icon}</span>{item.label}
+              </div>
+            ) : (
+              <div key={item.id} className={`mobile-nav-item ${page === item.id ? 'active' : ''}`} onClick={() => { setPage(item.id); setShowMore(false); }}>
+                <span>{item.icon}</span>{item.label}
+              </div>
+            )
+          ))}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -1110,8 +1557,11 @@ function App() {
         {page === 'dashboard' && <Dashboard events={events} registrations={registrations} status={status} />}
         {page === 'events' && <EventsPage events={events} onRefresh={refresh} showToast={showToast} />}
         {page === 'registrations' && <RegistrationsPage events={events} registrations={registrations} onRefresh={refresh} showToast={showToast} />}
+        {page === 'notifications' && <NotificationsPage events={events} registrations={registrations} showToast={showToast} />}
         {page === 'poster' && <PosterPage events={events} showToast={showToast} />}
         {page === 'certificates' && <CertificatesPage events={events} registrations={registrations} showToast={showToast} />}
+        {page === 'showcase' && <ShowcasePage events={events} showToast={showToast} />}
+        {page === 'guide' && <GuidePage showToast={showToast} />}
         {page === 'settings' && <SettingsPage status={status} />}
       </div>
       <MobileNav page={page} setPage={setPage} />

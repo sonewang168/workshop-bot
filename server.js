@@ -227,6 +227,7 @@ let memoryData = {
   ],
   posters: [],
   tempPosters: {},
+  showcase: [],
   settings: {}
 };
 
@@ -1202,6 +1203,186 @@ app.delete('/api/posters/:id', async (req, res) => {
     } else {
       if (memoryData.posters) {
         memoryData.posters = memoryData.posters.filter(p => p.id !== req.params.id);
+      }
+    }
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// AI 生成通知內容
+app.post('/api/generate-notification', async (req, res) => {
+  try {
+    const { event, type } = req.body;
+    const typePrompts = {
+      reminder: '活動前一天的上課提醒，溫馨提醒時間地點和準備事項',
+      start: '活動當天的開始通知，熱情歡迎學員',
+      material: '課前資料通知，列出需要準備的東西',
+      feedback: '課後回饋通知，感謝參與並詢問意見',
+      custom: '一般活動通知'
+    };
+    
+    const prompt = `請為以下工作坊撰寫${typePrompts[type] || typePrompts.custom}的 Email 通知內容。
+
+活動：${event.title}
+日期：${event.date}
+時間：${event.time}${event.endTime ? ' - ' + event.endTime : ''}
+地點：${event.location}
+
+要求：
+- 簡潔親切
+- 包含重要資訊
+- 約 100-150 字
+- 直接輸出內容，不要標題`;
+
+    const result = await callAI(prompt);
+    res.json({ text: result.text, provider: result.provider });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 發送 Email 通知給學員
+app.post('/api/send-notification', async (req, res) => {
+  try {
+    const { eventId, type, customMessage } = req.body;
+    if (!resend) return res.json({ success: false, error: 'Email 未設定' });
+    
+    const regs = await getRegistrations();
+    const events = await getEvents();
+    const event = events.find(e => e.id === eventId);
+    const confirmedRegs = regs.filter(r => r.eventId === eventId && r.status === 'confirmed');
+    
+    if (!event || confirmedRegs.length === 0) {
+      return res.json({ success: false, error: '沒有可發送的對象' });
+    }
+    
+    const typeLabels = {
+      reminder: '⏰ 上課提醒',
+      start: '🚀 活動開始',
+      material: '📚 課前資料',
+      feedback: '📝 課後回饋',
+      custom: '📨 活動通知'
+    };
+    
+    const subject = `${typeLabels[type] || '📨 通知'} - ${event.title}`;
+    const senderEmail = process.env.SENDER_EMAIL || 'onboarding@resend.dev';
+    
+    let sent = 0;
+    for (const reg of confirmedRegs) {
+      try {
+        await resend.emails.send({
+          from: senderEmail,
+          to: reg.email,
+          subject,
+          html: `
+            <div style="font-family: 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+              <div style="background: linear-gradient(135deg, #6366f1, #a855f7); color: white; padding: 30px; border-radius: 16px 16px 0 0;">
+                <h1 style="margin: 0;">${typeLabels[type] || '📨 通知'}</h1>
+                <p style="margin: 10px 0 0; opacity: 0.9;">${event.title}</p>
+              </div>
+              <div style="background: #f8fafc; padding: 30px; border-radius: 0 0 16px 16px;">
+                <p>親愛的 ${reg.name} 您好，</p>
+                <div style="background: white; padding: 20px; border-radius: 10px; margin: 20px 0; white-space: pre-wrap;">${customMessage}</div>
+                <div style="background: #e0e7ff; padding: 15px; border-radius: 10px; margin-top: 20px;">
+                  <p style="margin: 0;"><strong>📅 日期：</strong>${event.date}</p>
+                  <p style="margin: 5px 0;"><strong>⏰ 時間：</strong>${event.time}${event.endTime ? ' - ' + event.endTime : ''}</p>
+                  <p style="margin: 0;"><strong>📍 地點：</strong>${event.location}</p>
+                </div>
+              </div>
+            </div>
+          `
+        });
+        sent++;
+      } catch (e) {
+        console.error(`發送給 ${reg.email} 失敗:`, e.message);
+      }
+    }
+    
+    res.json({ success: true, sent, total: confirmedRegs.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 發送 LINE 通知給管理員
+app.post('/api/send-line-notification', async (req, res) => {
+  try {
+    const { eventId, message } = req.body;
+    if (ADMIN_IDS.length === 0) return res.json({ success: false, error: '未設定管理員' });
+    
+    const events = await getEvents();
+    const event = events.find(e => e.id === eventId);
+    
+    for (const adminId of ADMIN_IDS) {
+      try {
+        await client.pushMessage({
+          to: adminId,
+          messages: [{
+            type: 'flex',
+            altText: `📨 通知 - ${event?.title || '活動'}`,
+            contents: {
+              type: 'bubble',
+              header: { type: 'box', layout: 'vertical', contents: [
+                { type: 'text', text: '📨 活動通知', weight: 'bold', color: '#ffffff' }
+              ], backgroundColor: '#6366f1', paddingAll: '15px' },
+              body: { type: 'box', layout: 'vertical', contents: [
+                { type: 'text', text: event?.title || '活動', weight: 'bold', size: 'md' },
+                { type: 'text', text: message || '（無內容）', wrap: true, size: 'sm', color: '#555555', margin: 'md' }
+              ], paddingAll: '15px' }
+            }
+          }]
+        });
+      } catch (e) {
+        console.error(`發送給 ${adminId} 失敗:`, e.message);
+      }
+    }
+    
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 學員作品牆 CRUD
+app.get('/api/showcase', async (req, res) => {
+  try {
+    if (useFirebase) {
+      const snapshot = await db.collection('showcase').orderBy('createdAt', 'desc').get();
+      res.json(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    } else {
+      res.json(memoryData.showcase || []);
+    }
+  } catch (e) {
+    res.json([]);
+  }
+});
+
+app.post('/api/showcase', async (req, res) => {
+  try {
+    const work = { ...req.body };
+    if (useFirebase) {
+      const docRef = await db.collection('showcase').add(work);
+      res.json({ id: docRef.id, ...work });
+    } else {
+      work.id = Date.now().toString();
+      if (!memoryData.showcase) memoryData.showcase = [];
+      memoryData.showcase.unshift(work);
+      res.json(work);
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/showcase/:id', async (req, res) => {
+  try {
+    if (useFirebase) {
+      await db.collection('showcase').doc(req.params.id).delete();
+    } else {
+      if (memoryData.showcase) {
+        memoryData.showcase = memoryData.showcase.filter(w => w.id !== req.params.id);
       }
     }
     res.json({ success: true });
