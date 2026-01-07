@@ -1379,11 +1379,20 @@ function NotificationsPage({ events, registrations, showToast }) {
   const [selectedEvent, setSelectedEvent] = useState('');
   const [notifyType, setNotifyType] = useState('reminder');
   const [customMessage, setCustomMessage] = useState('');
+  const [schedules, setSchedules] = useState([]);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [scheduleForm, setScheduleForm] = useState({ type: 'reminder', daysBefore: 1, hour: 9, minute: 0, enabled: true });
 
   const activeEvents = events.filter(e => e.status === 'active');
 
+  // 載入排程
+  useEffect(() => {
+    fetch('/api/schedules').then(r => r.json()).then(data => setSchedules(data || [])).catch(() => {});
+  }, []);
+
   const sendReminder = async () => {
     if (!selectedEvent) { showToast('請選擇活動', 'error'); return; }
+    if (!customMessage.trim()) { showToast('請輸入通知內容', 'error'); return; }
     setSending(true);
     try {
       const res = await fetch('/api/send-notification', {
@@ -1424,12 +1433,222 @@ function NotificationsPage({ events, registrations, showToast }) {
     setSending(false);
   };
 
+  // 新增排程
+  const addSchedule = async () => {
+    if (!selectedEvent) { showToast('請選擇活動', 'error'); return; }
+    try {
+      const ev = events.find(e => e.id === selectedEvent);
+      const res = await fetch('/api/schedules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventId: selectedEvent,
+          eventTitle: ev.title,
+          eventDate: ev.date,
+          ...scheduleForm
+        })
+      });
+      const data = await res.json();
+      setSchedules(prev => [...prev, data]);
+      setShowScheduleModal(false);
+      showToast('排程已建立！', 'success');
+    } catch (e) {
+      showToast('建立失敗', 'error');
+    }
+  };
+
+  // 切換排程啟用
+  const toggleSchedule = async (id, enabled) => {
+    try {
+      await fetch(`/api/schedules/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled })
+      });
+      setSchedules(prev => prev.map(s => s.id === id ? { ...s, enabled } : s));
+      showToast(enabled ? '排程已啟用' : '排程已暫停', 'success');
+    } catch (e) {
+      showToast('更新失敗', 'error');
+    }
+  };
+
+  // 刪除排程
+  const deleteSchedule = async (id) => {
+    if (!confirm('確定要刪除此排程？')) return;
+    try {
+      await fetch(`/api/schedules/${id}`, { method: 'DELETE' });
+      setSchedules(prev => prev.filter(s => s.id !== id));
+      showToast('排程已刪除', 'success');
+    } catch (e) {
+      showToast('刪除失敗', 'error');
+    }
+  };
+
+  // 立即執行排程
+  const runScheduleNow = async (schedule) => {
+    setSending(true);
+    try {
+      const res = await fetch('/api/run-schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scheduleId: schedule.id })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`已發送 ${data.sent} 封通知！`, 'success');
+      } else {
+        showToast(data.error || '發送失敗', 'error');
+      }
+    } catch (e) {
+      showToast('執行失敗', 'error');
+    }
+    setSending(false);
+  };
+
   const selectedEventData = events.find(e => e.id === selectedEvent);
   const eventRegs = selectedEvent ? registrations.filter(r => r.eventId === selectedEvent && r.status === 'confirmed') : [];
 
+  const typeLabels = {
+    reminder: { icon: '⏰', label: '上課提醒', desc: '活動前發送' },
+    start: { icon: '🚀', label: '活動開始', desc: '活動當天發送' },
+    material: { icon: '📚', label: '課前資料', desc: '提供準備資訊' },
+    feedback: { icon: '📝', label: '課後回饋', desc: '活動結束後' },
+    custom: { icon: '✏️', label: '自訂訊息', desc: '自行編寫' }
+  };
+
+  // 計算排程發送時間（台灣時間）
+  const getScheduleTime = (schedule) => {
+    const [year, month, day] = schedule.eventDate.split('-').map(Number);
+    const sendDate = new Date(year, month - 1, day);
+    if (schedule.type === 'feedback') {
+      sendDate.setDate(sendDate.getDate() + (schedule.daysAfter || 1));
+    } else {
+      sendDate.setDate(sendDate.getDate() - (schedule.daysBefore || 1));
+    }
+    const dateStr = `${sendDate.getFullYear()}/${sendDate.getMonth() + 1}/${sendDate.getDate()}`;
+    return `${dateStr} ${String(schedule.hour || 9).padStart(2, '0')}:${String(schedule.minute || 0).padStart(2, '0')}`;
+  };
+
+  // 檢查是否已過發送時間
+  const isPastScheduleTime = (schedule) => {
+    const [year, month, day] = schedule.eventDate.split('-').map(Number);
+    const sendDate = new Date(year, month - 1, day);
+    if (schedule.type === 'feedback') {
+      sendDate.setDate(sendDate.getDate() + (schedule.daysAfter || 1));
+    } else {
+      sendDate.setDate(sendDate.getDate() - (schedule.daysBefore || 1));
+    }
+    sendDate.setHours(schedule.hour || 9, schedule.minute || 0, 0, 0);
+    return new Date() >= sendDate;
+  };
+
   return (
     <div>
-      <div className="header"><h1>🔔 通知中心</h1></div>
+      <div className="header">
+        <h1>🔔 通知中心</h1>
+        <button className="btn btn-primary" onClick={() => setShowScheduleModal(true)} disabled={!selectedEvent}>
+          ⏰ 建立自動排程
+        </button>
+      </div>
+
+      {/* 自動排程列表 */}
+      {schedules.length > 0 && (
+        <div className="card" style={{ marginBottom: '20px' }}>
+          <h3>⏰ 自動排程列表</h3>
+          <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '15px' }}>
+            💡 系統會在指定時間自動發送通知（每 10 分鐘檢查一次）
+          </p>
+          <div style={{ overflowX: 'auto' }}>
+            <table>
+              <thead>
+                <tr><th>活動</th><th>類型</th><th>發送時間</th><th>狀態</th><th>操作</th></tr>
+              </thead>
+              <tbody>
+                {schedules.map(s => {
+                  const typeInfo = typeLabels[s.type] || typeLabels.custom;
+                  const isPast = isPastScheduleTime(s);
+                  return (
+                    <tr key={s.id} style={{ opacity: s.sent ? 0.5 : 1 }}>
+                      <td><strong>{s.eventTitle}</strong><br/><span style={{ fontSize: '12px', color: '#64748b' }}>{s.eventDate}</span></td>
+                      <td>{typeInfo.icon} {typeInfo.label}</td>
+                      <td>{getScheduleTime(s)}</td>
+                      <td>
+                        {s.sent ? (
+                          <span className="badge badge-gray">✓ 已發送</span>
+                        ) : isPast ? (
+                          <span className="badge badge-yellow">⏳ 待發送</span>
+                        ) : s.enabled ? (
+                          <span className="badge badge-green">🟢 啟用中</span>
+                        ) : (
+                          <span className="badge badge-gray">⏸️ 已暫停</span>
+                        )}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                          {!s.sent && (
+                            <>
+                              <button className="btn btn-secondary btn-sm" onClick={() => toggleSchedule(s.id, !s.enabled)}>
+                                {s.enabled ? '⏸️ 暫停' : '▶️ 啟用'}
+                              </button>
+                              <button className="btn btn-primary btn-sm" onClick={() => runScheduleNow(s)} disabled={sending}>
+                                🚀 立即發送
+                              </button>
+                            </>
+                          )}
+                          <button className="btn btn-danger btn-sm" onClick={() => deleteSchedule(s.id)}>🗑️</button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* 快速排程按鈕 */}
+      {selectedEvent && (
+        <div className="card" style={{ marginBottom: '20px' }}>
+          <h3>⚡ 快速建立排程</h3>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            {[
+              { type: 'reminder', daysBefore: 1, label: '📢 活動前 1 天提醒' },
+              { type: 'reminder', daysBefore: 3, label: '📢 活動前 3 天提醒' },
+              { type: 'start', daysBefore: 0, label: '🚀 活動當天提醒' },
+              { type: 'feedback', daysAfter: 1, label: '📝 活動後 1 天回饋' }
+            ].map((preset, i) => (
+              <button key={i} className="btn btn-secondary" onClick={async () => {
+                const ev = events.find(e => e.id === selectedEvent);
+                try {
+                  const res = await fetch('/api/schedules', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      eventId: selectedEvent,
+                      eventTitle: ev.title,
+                      eventDate: ev.date,
+                      type: preset.type,
+                      daysBefore: preset.daysBefore || 0,
+                      daysAfter: preset.daysAfter || 0,
+                      hour: 9,
+                      minute: 0,
+                      enabled: true
+                    })
+                  });
+                  const data = await res.json();
+                  setSchedules(prev => [...prev, data]);
+                  showToast('排程已建立！', 'success');
+                } catch (e) {
+                  showToast('建立失敗', 'error');
+                }
+              }}>
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       
       <div className="card">
         <h3>📅 選擇活動</h3>
@@ -1452,17 +1671,11 @@ function NotificationsPage({ events, registrations, showToast }) {
       </div>
 
       <div className="card">
-        <h3>📨 通知類型</h3>
+        <h3>📨 通知類型（手動發送）</h3>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-          {[
-            { id: 'reminder', label: '⏰ 上課提醒', desc: '活動前一天發送' },
-            { id: 'start', label: '🚀 活動開始', desc: '活動當天發送' },
-            { id: 'material', label: '📚 課前資料', desc: '提供課前準備資訊' },
-            { id: 'feedback', label: '📝 課後回饋', desc: '活動結束後發送' },
-            { id: 'custom', label: '✏️ 自訂訊息', desc: '自行編寫內容' }
-          ].map(t => (
-            <button key={t.id} className={`style-btn ${notifyType === t.id ? 'active' : ''}`} onClick={() => setNotifyType(t.id)} style={{ flex: '1', minWidth: '120px' }}>
-              {t.label}<br/><small style={{ opacity: 0.7 }}>{t.desc}</small>
+          {Object.entries(typeLabels).map(([id, t]) => (
+            <button key={id} className={`style-btn ${notifyType === id ? 'active' : ''}`} onClick={() => setNotifyType(id)} style={{ flex: '1', minWidth: '120px' }}>
+              {t.icon} {t.label}<br/><small style={{ opacity: 0.7 }}>{t.desc}</small>
             </button>
           ))}
         </div>
@@ -1481,12 +1694,13 @@ function NotificationsPage({ events, registrations, showToast }) {
       </div>
 
       <div className="card">
+        <h3>📤 立即發送</h3>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-          <button className="btn btn-primary" onClick={sendReminder} disabled={sending || !selectedEvent || eventRegs.length === 0}>
-            {sending ? <><span className="loading"></span> 發送中...</> : `📧 發送 Email 通知（${eventRegs.length} 人）`}
+          <button className="btn btn-primary" onClick={sendReminder} disabled={sending || !selectedEvent || eventRegs.length === 0 || !customMessage.trim()}>
+            {sending ? <><span className="loading"></span> 發送中...</> : `📧 發送 Email（${eventRegs.length} 人）`}
           </button>
           <button className="btn btn-secondary" onClick={async () => {
-            if (!selectedEvent) return;
+            if (!selectedEvent || !customMessage.trim()) return;
             setSending(true);
             try {
               const res = await fetch('/api/send-line-notification', {
@@ -1498,11 +1712,101 @@ function NotificationsPage({ events, registrations, showToast }) {
               showToast(data.success ? 'LINE 通知已發送' : '發送失敗', data.success ? 'success' : 'error');
             } catch (e) { showToast('發送失敗', 'error'); }
             setSending(false);
-          }} disabled={sending || !selectedEvent}>
-            📱 發送 LINE 通知（管理員）
+          }} disabled={sending || !selectedEvent || !customMessage.trim()}>
+            📱 LINE 通知管理員
           </button>
         </div>
       </div>
+
+      {/* 建立排程 Modal */}
+      {showScheduleModal && (
+        <div className="modal-overlay" onClick={() => setShowScheduleModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h2>⏰ 建立自動排程</h2>
+            <p style={{ color: '#64748b', marginBottom: '20px' }}>
+              設定自動發送通知的時間，系統會在指定時間自動發送 Email 給所有已確認學員
+            </p>
+            
+            <div className="form-group">
+              <label>通知類型</label>
+              <select value={scheduleForm.type} onChange={e => setScheduleForm({...scheduleForm, type: e.target.value})}
+                style={{ width: '100%', padding: '12px', background: '#0f0f1a', border: '1px solid #3a3a4a', borderRadius: '10px', color: '#e2e8f0' }}>
+                {Object.entries(typeLabels).map(([id, t]) => (
+                  <option key={id} value={id}>{t.icon} {t.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {scheduleForm.type === 'feedback' ? (
+              <div className="form-group">
+                <label>活動結束後幾天發送</label>
+                <select value={scheduleForm.daysAfter || 1} onChange={e => setScheduleForm({...scheduleForm, daysAfter: parseInt(e.target.value)})}
+                  style={{ width: '100%', padding: '12px', background: '#0f0f1a', border: '1px solid #3a3a4a', borderRadius: '10px', color: '#e2e8f0' }}>
+                  <option value={1}>活動後 1 天</option>
+                  <option value={2}>活動後 2 天</option>
+                  <option value={3}>活動後 3 天</option>
+                  <option value={7}>活動後 1 週</option>
+                </select>
+              </div>
+            ) : (
+              <div className="form-group">
+                <label>活動前幾天發送</label>
+                <select value={scheduleForm.daysBefore} onChange={e => setScheduleForm({...scheduleForm, daysBefore: parseInt(e.target.value)})}
+                  style={{ width: '100%', padding: '12px', background: '#0f0f1a', border: '1px solid #3a3a4a', borderRadius: '10px', color: '#e2e8f0' }}>
+                  <option value={0}>活動當天</option>
+                  <option value={1}>活動前 1 天</option>
+                  <option value={2}>活動前 2 天</option>
+                  <option value={3}>活動前 3 天</option>
+                  <option value={7}>活動前 1 週</option>
+                </select>
+              </div>
+            )}
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>發送時間（小時）</label>
+                <select value={scheduleForm.hour} onChange={e => setScheduleForm({...scheduleForm, hour: parseInt(e.target.value)})}
+                  style={{ width: '100%', padding: '12px', background: '#0f0f1a', border: '1px solid #3a3a4a', borderRadius: '10px', color: '#e2e8f0' }}>
+                  {[7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map(h => (
+                    <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>分鐘</label>
+                <select value={scheduleForm.minute} onChange={e => setScheduleForm({...scheduleForm, minute: parseInt(e.target.value)})}
+                  style={{ width: '100%', padding: '12px', background: '#0f0f1a', border: '1px solid #3a3a4a', borderRadius: '10px', color: '#e2e8f0' }}>
+                  {[0, 15, 30, 45].map(m => (
+                    <option key={m} value={m}>:{String(m).padStart(2, '0')}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div style={{ background: '#0f0f1a', padding: '15px', borderRadius: '10px', marginBottom: '20px' }}>
+              <div style={{ color: '#64748b', fontSize: '14px' }}>
+                📅 活動：{selectedEventData?.title}<br/>
+                📆 活動日期：{selectedEventData?.date}<br/>
+                ⏰ 預計發送：{selectedEventData ? (() => {
+                  const [year, month, day] = selectedEventData.date.split('-').map(Number);
+                  const sendDate = new Date(year, month - 1, day);
+                  if (scheduleForm.type === 'feedback') {
+                    sendDate.setDate(sendDate.getDate() + (scheduleForm.daysAfter || 1));
+                  } else {
+                    sendDate.setDate(sendDate.getDate() - scheduleForm.daysBefore);
+                  }
+                  return `${sendDate.getFullYear()}/${sendDate.getMonth() + 1}/${sendDate.getDate()} ${String(scheduleForm.hour).padStart(2, '0')}:${String(scheduleForm.minute).padStart(2, '0')} (台灣時間)`;
+                })() : '-'}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button className="btn btn-primary" onClick={addSchedule}>✓ 建立排程</button>
+              <button className="btn btn-secondary" onClick={() => setShowScheduleModal(false)}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1632,158 +1936,312 @@ function ShowcasePage({ events, showToast }) {
 }
 
 // 操作手冊
-function GuidePage({ showToast }) {
-  const guides = [
-    {
-      title: '🚀 快速開始',
-      steps: [
-        '1. 在「活動管理」新增活動，填寫基本資料',
-        '2. 將活動狀態改為「進行中」',
-        '3. 使用「報名連結」或「QR Code」分享給學員',
-        '4. 在「報名管理」確認報名',
-        '5. 使用「通知中心」發送上課提醒',
-        '6. 活動結束後在「證書產生」發送證書'
-      ]
-    },
-    {
-      title: '🎨 AI 文宣使用',
-      steps: [
-        '1. 進入「AI 文宣」頁面',
-        '2. 選擇要產生文宣的活動',
-        '3. 選擇文宣風格（社群/正式/活潑/Email）',
-        '4. 點擊「同時產生兩版文宣」',
-        '5. 比較 OpenAI 和 Gemini 的結果',
-        '6. 點擊「挑選保存」保存喜歡的版本'
-      ]
-    },
-    {
-      title: '🔔 通知功能說明',
-      steps: [
-        '• 上課提醒：活動前一天發送',
-        '• 活動開始：活動當天發送',
-        '• 課前資料：提供準備事項',
-        '• 課後回饋：收集學員意見',
-        '• 自訂訊息：完全自訂內容',
-        '💡 可使用 AI 自動生成通知內容'
-      ]
-    },
-    {
-      title: '📱 LINE Bot 指令',
-      steps: [
-        '• 總覽 - 查看系統統計',
-        '• 活動列表 - 查看所有活動',
-        '• 最新報名 - 查看報名資料',
-        '• 報名連結 - 取得 QR Code',
-        '• 生成文宣 - AI 產生文案',
-        '• 確認全部 - 批次確認報名',
-        '• 網頁 - 開啟管理後台'
-      ]
-    },
-    {
-      title: '⚙️ 環境變數設定',
-      steps: [
-        '必要設定：',
-        '• LINE_CHANNEL_ACCESS_TOKEN',
-        '• LINE_CHANNEL_SECRET', 
-        '• FIREBASE_SERVICE_ACCOUNT',
-        '',
-        'AI 功能：',
-        '• OPENAI_API_KEY',
-        '• GEMINI_API_KEY',
-        '',
-        '通知功能：',
-        '• RESEND_API_KEY',
-        '• ADMIN_USER_IDS'
-      ]
-    }
-  ];
+function GuidePage({ events, registrations, showToast }) {
+  const [activeFeature, setActiveFeature] = useState(null);
+  const [calendarUrl, setCalendarUrl] = useState('');
+  const [faqList, setFaqList] = useState([
+    { q: '如何報名？', a: '請點擊報名連結填寫表單即可完成報名。' },
+    { q: '可以取消報名嗎？', a: '可以，請到報名頁面輸入 Email 查詢並取消。' },
+    { q: '會收到通知嗎？', a: '會，報名成功後會收到確認信，活動前也會收到提醒。' }
+  ]);
+  const [newFaq, setNewFaq] = useState({ q: '', a: '' });
+  const [aiQuestion, setAiQuestion] = useState('');
+  const [aiAnswer, setAiAnswer] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
 
-  const exportGuide = () => {
-    const content = guides.map(g => `## ${g.title}\n\n${g.steps.join('\n')}`).join('\n\n---\n\n');
-    const blob = new Blob([`# 工作坊管理系統操作手冊\n\n${content}`], { type: 'text/markdown' });
+  // 計算統計數據
+  const stats = {
+    totalEvents: events.length,
+    totalRegs: registrations.length,
+    confirmed: registrations.filter(r => r.status === 'confirmed').length,
+    cancelled: registrations.filter(r => r.status === 'cancelled').length,
+    conversionRate: registrations.length > 0 ? Math.round((registrations.filter(r => r.status === 'confirmed').length / registrations.length) * 100) : 0,
+    avgPerEvent: events.length > 0 ? Math.round(registrations.length / events.length) : 0
+  };
+
+  // 按活動統計
+  const eventStats = events.map(ev => {
+    const evRegs = registrations.filter(r => r.eventId === ev.id);
+    return {
+      ...ev,
+      total: evRegs.length,
+      confirmed: evRegs.filter(r => r.status === 'confirmed').length,
+      rate: evRegs.length > 0 ? Math.round((evRegs.filter(r => r.status === 'confirmed').length / evRegs.length) * 100) : 0
+    };
+  });
+
+  // 生成 Google Calendar 連結
+  const generateCalendarLink = (ev) => {
+    const startDate = ev.date.replace(/-/g, '');
+    const startTime = (ev.time || '09:00').replace(/:/g, '') + '00';
+    const endTime = (ev.endTime || '17:00').replace(/:/g, '') + '00';
+    const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(ev.title)}&dates=${startDate}T${startTime}/${startDate}T${endTime}&location=${encodeURIComponent(ev.location || '')}&details=${encodeURIComponent(ev.description || '')}`;
+    return url;
+  };
+
+  // AI 客服回答
+  const askAI = async () => {
+    if (!aiQuestion.trim()) return;
+    setAiLoading(true);
+    try {
+      const res = await fetch('/api/ai-support', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: aiQuestion, faqList, events })
+      });
+      const data = await res.json();
+      setAiAnswer(data.answer || '抱歉，無法回答此問題。');
+    } catch (e) {
+      setAiAnswer('AI 服務暫時無法使用，請稍後再試。');
+    }
+    setAiLoading(false);
+  };
+
+  // 匯出學習歷程
+  const exportLearningHistory = (studentEmail) => {
+    const studentRegs = registrations.filter(r => r.email === studentEmail && r.status === 'confirmed');
+    const history = studentRegs.map(r => {
+      const ev = events.find(e => e.id === r.eventId);
+      return { event: ev?.title || '未知活動', date: ev?.date || '', status: '已完成' };
+    });
+    const csv = [['活動名稱', '日期', '狀態'], ...history.map(h => [h.event, h.date, h.status])].map(row => row.join(',')).join('\n');
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'workshop-guide.md';
+    a.download = `學習歷程_${studentEmail}.csv`;
     a.click();
-    showToast('手冊已下載', 'success');
+    showToast('學習歷程已匯出', 'success');
   };
 
-  const copySetupGuide = () => {
-    const setup = `# 工作坊管理系統部署指南
+  const features = [
+    { id: 'calendar', icon: '📅', title: '整合 Google Calendar', desc: '活動自動同步到行事曆', color: '#4285f4' },
+    { id: 'analytics', icon: '📊', title: '報名數據分析', desc: '學員來源、轉換率統計', color: '#ea4335' },
+    { id: 'ai-support', icon: '🤖', title: 'AI 客服機器人', desc: '自動回答常見問題', color: '#34a853' },
+    { id: 'payment', icon: '💳', title: '線上付款整合', desc: '串接金流收取報名費', color: '#fbbc05' },
+    { id: 'course', icon: '📹', title: '線上課程平台', desc: '整合錄影、直播功能', color: '#9c27b0' },
+    { id: 'history', icon: '🏅', title: '學習歷程記錄', desc: '追蹤學員學習進度', color: '#ff5722' }
+  ];
 
-## 1. GitHub 設定
-\`\`\`bash
-git clone https://github.com/YOUR_USERNAME/workshop-bot-firebase.git
-cd workshop-bot-firebase
-\`\`\`
-
-## 2. Render 部署
-1. 前往 https://render.com
-2. 建立 Web Service
-3. 連結 GitHub Repository
-4. 設定環境變數
-
-## 3. 環境變數
-LINE_CHANNEL_ACCESS_TOKEN=你的_TOKEN
-LINE_CHANNEL_SECRET=你的_SECRET
-FIREBASE_SERVICE_ACCOUNT={"type":"service_account",...}
-OPENAI_API_KEY=sk-...
-GEMINI_API_KEY=AI...
-RESEND_API_KEY=re_...
-ADMIN_USER_IDS=Uxxxxxxx
-
-## 4. LINE Webhook 設定
-Webhook URL: https://your-app.onrender.com/webhook
-
-## 5. 完成！
-開啟 https://your-app.onrender.com 開始使用`;
-    
-    navigator.clipboard.writeText(setup);
-    showToast('部署指南已複製', 'success');
-  };
+  const guides = [
+    { title: '🚀 快速開始', steps: ['1. 新增活動', '2. 設為進行中', '3. 分享報名連結', '4. 確認報名', '5. 發送通知', '6. 發送證書'] },
+    { title: '📱 LINE Bot', steps: ['• 總覽 - 系統統計', '• 活動列表 - 管理活動', '• 最新報名 - 報名資料', '• 通知 - 發送提醒', '• 證書 - 發送證書'] }
+  ];
 
   return (
     <div>
       <div className="header">
-        <h1>📖 操作手冊</h1>
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button className="btn btn-primary" onClick={exportGuide}>📥 下載手冊</button>
-          <button className="btn btn-secondary" onClick={copySetupGuide}>📋 複製部署指南</button>
-        </div>
+        <h1>📖 操作手冊 & 進階功能</h1>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '20px' }}>
-        {guides.map((guide, i) => (
-          <div key={i} className="card" style={{ margin: 0 }}>
-            <h3 style={{ marginBottom: '15px' }}>{guide.title}</h3>
-            <div style={{ color: '#94a3b8', lineHeight: '2' }}>
-              {guide.steps.map((step, j) => (
-                <div key={j}>{step}</div>
-              ))}
-            </div>
+      {/* 功能卡片 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '15px', marginBottom: '20px' }}>
+        {features.map(f => (
+          <div key={f.id} onClick={() => setActiveFeature(activeFeature === f.id ? null : f.id)}
+            style={{ background: activeFeature === f.id ? f.color : '#1a1a2e', padding: '20px', borderRadius: '12px', cursor: 'pointer', border: `2px solid ${activeFeature === f.id ? f.color : '#2a2a4a'}`, transition: 'all 0.3s' }}>
+            <div style={{ fontSize: '32px', marginBottom: '10px' }}>{f.icon}</div>
+            <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>{f.title}</div>
+            <div style={{ fontSize: '12px', color: activeFeature === f.id ? '#fff' : '#64748b' }}>{f.desc}</div>
           </div>
         ))}
       </div>
 
-      <div className="card" style={{ marginTop: '20px' }}>
-        <h3>💡 延伸做法建議</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '15px', marginTop: '15px' }}>
-          {[
-            { icon: '🎯', title: '整合 Google Calendar', desc: '活動自動同步到行事曆' },
-            { icon: '📊', title: '報名數據分析', desc: '學員來源、轉換率統計' },
-            { icon: '🤖', title: 'AI 客服機器人', desc: '自動回答常見問題' },
-            { icon: '💳', title: '線上付款整合', desc: '串接金流收取報名費' },
-            { icon: '📹', title: '線上課程平台', desc: '整合錄影、直播功能' },
-            { icon: '🏅', title: '學習歷程記錄', desc: '追蹤學員學習進度' }
-          ].map((item, i) => (
-            <div key={i} style={{ background: '#0f0f1a', padding: '15px', borderRadius: '10px' }}>
-              <div style={{ fontSize: '24px', marginBottom: '10px' }}>{item.icon}</div>
-              <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>{item.title}</div>
-              <div style={{ color: '#64748b', fontSize: '12px' }}>{item.desc}</div>
+      {/* 功能詳情 */}
+      {activeFeature === 'calendar' && (
+        <div className="card">
+          <h3>📅 整合 Google Calendar</h3>
+          <p style={{ color: '#94a3b8', marginBottom: '15px' }}>選擇活動，一鍵加入 Google 行事曆</p>
+          {events.filter(e => e.status === 'active').length === 0 ? (
+            <p style={{ color: '#64748b' }}>沒有進行中的活動</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {events.filter(e => e.status === 'active').map(ev => (
+                <div key={ev.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0f0f1a', padding: '15px', borderRadius: '10px' }}>
+                  <div>
+                    <strong>{ev.title}</strong>
+                    <div style={{ fontSize: '12px', color: '#64748b' }}>{ev.date} {ev.time}</div>
+                  </div>
+                  <a href={generateCalendarLink(ev)} target="_blank" className="btn btn-primary btn-sm">📅 加入行事曆</a>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
+      )}
+
+      {activeFeature === 'analytics' && (
+        <div className="card">
+          <h3>📊 報名數據分析</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '15px', marginBottom: '20px' }}>
+            <div style={{ background: '#0f0f1a', padding: '15px', borderRadius: '10px', textAlign: 'center' }}>
+              <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#6366f1' }}>{stats.totalEvents}</div>
+              <div style={{ fontSize: '12px', color: '#64748b' }}>活動總數</div>
+            </div>
+            <div style={{ background: '#0f0f1a', padding: '15px', borderRadius: '10px', textAlign: 'center' }}>
+              <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#10b981' }}>{stats.totalRegs}</div>
+              <div style={{ fontSize: '12px', color: '#64748b' }}>總報名數</div>
+            </div>
+            <div style={{ background: '#0f0f1a', padding: '15px', borderRadius: '10px', textAlign: 'center' }}>
+              <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#f59e0b' }}>{stats.conversionRate}%</div>
+              <div style={{ fontSize: '12px', color: '#64748b' }}>確認率</div>
+            </div>
+            <div style={{ background: '#0f0f1a', padding: '15px', borderRadius: '10px', textAlign: 'center' }}>
+              <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#ec4899' }}>{stats.avgPerEvent}</div>
+              <div style={{ fontSize: '12px', color: '#64748b' }}>平均報名/活動</div>
+            </div>
+          </div>
+          <h4>各活動轉換率</h4>
+          <table>
+            <thead><tr><th>活動</th><th>報名</th><th>確認</th><th>轉換率</th></tr></thead>
+            <tbody>
+              {eventStats.map(ev => (
+                <tr key={ev.id}>
+                  <td>{ev.title}</td>
+                  <td>{ev.total}</td>
+                  <td>{ev.confirmed}</td>
+                  <td><span className={`badge ${ev.rate >= 80 ? 'badge-green' : ev.rate >= 50 ? 'badge-yellow' : 'badge-red'}`}>{ev.rate}%</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {activeFeature === 'ai-support' && (
+        <div className="card">
+          <h3>🤖 AI 客服機器人</h3>
+          <div style={{ marginBottom: '20px' }}>
+            <h4>常見問題管理</h4>
+            {faqList.map((faq, i) => (
+              <div key={i} style={{ background: '#0f0f1a', padding: '15px', borderRadius: '10px', marginBottom: '10px' }}>
+                <div style={{ fontWeight: 'bold', color: '#a5b4fc' }}>Q: {faq.q}</div>
+                <div style={{ color: '#94a3b8', marginTop: '5px' }}>A: {faq.a}</div>
+                <button className="btn btn-danger btn-sm" style={{ marginTop: '10px' }} onClick={() => setFaqList(faqList.filter((_, j) => j !== i))}>刪除</button>
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: '10px', marginTop: '15px', flexWrap: 'wrap' }}>
+              <input placeholder="問題" value={newFaq.q} onChange={e => setNewFaq({...newFaq, q: e.target.value})} style={{ flex: 1, minWidth: '150px' }} />
+              <input placeholder="答案" value={newFaq.a} onChange={e => setNewFaq({...newFaq, a: e.target.value})} style={{ flex: 2, minWidth: '200px' }} />
+              <button className="btn btn-primary btn-sm" onClick={() => { if (newFaq.q && newFaq.a) { setFaqList([...faqList, newFaq]); setNewFaq({ q: '', a: '' }); } }}>新增</button>
+            </div>
+          </div>
+          <div style={{ borderTop: '1px solid #2a2a4a', paddingTop: '20px' }}>
+            <h4>測試 AI 回答</h4>
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+              <input placeholder="輸入學員可能問的問題..." value={aiQuestion} onChange={e => setAiQuestion(e.target.value)} style={{ flex: 1 }} />
+              <button className="btn btn-primary" onClick={askAI} disabled={aiLoading}>{aiLoading ? '思考中...' : '🤖 AI 回答'}</button>
+            </div>
+            {aiAnswer && (
+              <div style={{ background: '#0f0f1a', padding: '15px', borderRadius: '10px' }}>
+                <div style={{ color: '#10b981', fontWeight: 'bold' }}>AI 回答：</div>
+                <div style={{ color: '#e2e8f0', marginTop: '10px' }}>{aiAnswer}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {activeFeature === 'payment' && (
+        <div className="card">
+          <h3>💳 線上付款整合</h3>
+          <div style={{ background: '#0f0f1a', padding: '20px', borderRadius: '10px' }}>
+            <p style={{ color: '#f59e0b', marginBottom: '15px' }}>⚠️ 付款功能需要額外串接金流服務</p>
+            <h4>支援的金流平台：</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '15px', marginTop: '15px' }}>
+              {[
+                { name: '綠界 ECPay', url: 'https://www.ecpay.com.tw/', desc: '台灣最大第三方支付' },
+                { name: '藍新 NewebPay', url: 'https://www.newebpay.com/', desc: '多元支付整合' },
+                { name: 'LINE Pay', url: 'https://pay.line.me/', desc: 'LINE 用戶便捷支付' },
+                { name: 'Stripe', url: 'https://stripe.com/', desc: '國際信用卡支付' }
+              ].map((p, i) => (
+                <a key={i} href={p.url} target="_blank" style={{ background: '#1a1a2e', padding: '15px', borderRadius: '10px', textDecoration: 'none' }}>
+                  <div style={{ fontWeight: 'bold', color: '#a5b4fc' }}>{p.name}</div>
+                  <div style={{ fontSize: '12px', color: '#64748b' }}>{p.desc}</div>
+                </a>
+              ))}
+            </div>
+            <div style={{ marginTop: '20px', padding: '15px', background: '#1a1a2e', borderRadius: '10px' }}>
+              <h4>整合步驟：</h4>
+              <ol style={{ color: '#94a3b8', paddingLeft: '20px', lineHeight: '2' }}>
+                <li>申請金流平台商戶帳號</li>
+                <li>取得 API Key 和 Secret</li>
+                <li>在 Render 環境變數設定金流參數</li>
+                <li>在活動設定中啟用付款功能</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeFeature === 'course' && (
+        <div className="card">
+          <h3>📹 線上課程平台</h3>
+          <div style={{ background: '#0f0f1a', padding: '20px', borderRadius: '10px' }}>
+            <h4>支援的平台整合：</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '15px', marginTop: '15px' }}>
+              {[
+                { name: 'Google Meet', icon: '📹', desc: '免費視訊會議', action: () => window.open('https://meet.google.com/new', '_blank') },
+                { name: 'YouTube 直播', icon: '🔴', desc: '大型活動直播', action: () => window.open('https://studio.youtube.com/', '_blank') },
+                { name: 'Zoom', icon: '💻', desc: '專業會議系統', action: () => window.open('https://zoom.us/', '_blank') },
+                { name: 'OBS Studio', icon: '🎬', desc: '專業錄影軟體', action: () => window.open('https://obsproject.com/', '_blank') }
+              ].map((p, i) => (
+                <div key={i} onClick={p.action} style={{ background: '#1a1a2e', padding: '15px', borderRadius: '10px', cursor: 'pointer' }}>
+                  <div style={{ fontSize: '24px' }}>{p.icon}</div>
+                  <div style={{ fontWeight: 'bold', color: '#a5b4fc', marginTop: '10px' }}>{p.name}</div>
+                  <div style={{ fontSize: '12px', color: '#64748b' }}>{p.desc}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: '20px' }}>
+              <h4>快速建立會議連結</h4>
+              <button className="btn btn-primary" style={{ marginTop: '10px' }} onClick={() => window.open('https://meet.google.com/new', '_blank')}>
+                📹 建立 Google Meet
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeFeature === 'history' && (
+        <div className="card">
+          <h3>🏅 學習歷程記錄</h3>
+          <p style={{ color: '#94a3b8', marginBottom: '15px' }}>查詢學員參與過的所有活動</p>
+          {(() => {
+            const uniqueEmails = [...new Set(registrations.filter(r => r.status === 'confirmed').map(r => r.email))];
+            return uniqueEmails.length === 0 ? (
+              <p style={{ color: '#64748b' }}>沒有學員資料</p>
+            ) : (
+              <table>
+                <thead><tr><th>學員 Email</th><th>參與活動數</th><th>操作</th></tr></thead>
+                <tbody>
+                  {uniqueEmails.map(email => {
+                    const count = registrations.filter(r => r.email === email && r.status === 'confirmed').length;
+                    const name = registrations.find(r => r.email === email)?.name || '';
+                    return (
+                      <tr key={email}>
+                        <td><strong>{name}</strong><br/><span style={{ fontSize: '12px', color: '#64748b' }}>{email}</span></td>
+                        <td><span className="badge badge-green">{count} 場</span></td>
+                        <td><button className="btn btn-secondary btn-sm" onClick={() => exportLearningHistory(email)}>📥 匯出歷程</button></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* 操作指南 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px', marginTop: '20px' }}>
+        {guides.map((guide, i) => (
+          <div key={i} className="card" style={{ margin: 0 }}>
+            <h3>{guide.title}</h3>
+            <div style={{ color: '#94a3b8', lineHeight: '2' }}>
+              {guide.steps.map((step, j) => <div key={j}>{step}</div>)}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -1883,7 +2341,7 @@ function App() {
         {page === 'poster' && <PosterPage events={events} showToast={showToast} />}
         {page === 'certificates' && <CertificatesPage events={events} registrations={registrations} showToast={showToast} />}
         {page === 'showcase' && <ShowcasePage events={events} showToast={showToast} />}
-        {page === 'guide' && <GuidePage showToast={showToast} />}
+        {page === 'guide' && <GuidePage events={events} registrations={registrations} showToast={showToast} />}
         {page === 'settings' && <SettingsPage status={status} />}
       </div>
       <MobileNav page={page} setPage={setPage} />

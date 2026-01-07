@@ -228,6 +228,7 @@ let memoryData = {
   posters: [],
   tempPosters: {},
   showcase: [],
+  schedules: [],
   settings: {}
 };
 
@@ -1627,6 +1628,280 @@ app.delete('/api/showcase/:id', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+// AI 客服 API
+app.post('/api/ai-support', async (req, res) => {
+  try {
+    const { question, faqList, events } = req.body;
+    
+    // 建立 FAQ 和活動資訊
+    const faqText = faqList.map(f => `Q: ${f.q}\nA: ${f.a}`).join('\n\n');
+    const eventsText = events.filter(e => e.status === 'active').map(e => 
+      `活動：${e.title}，日期：${e.date}，時間：${e.time || '未定'}，地點：${e.location || '未定'}，名額：${e.maxParticipants - (e.registrations || 0)} 人`
+    ).join('\n');
+    
+    const prompt = `你是工作坊管理系統的 AI 客服助理。請根據以下資訊回答學員問題。
+
+常見問題：
+${faqText || '（無）'}
+
+目前進行中的活動：
+${eventsText || '（目前沒有進行中的活動）'}
+
+學員問題：${question}
+
+請用繁體中文、親切專業的語氣回答，控制在 100 字以內。如果問題與活動無關，請禮貌地引導回工作坊相關主題。`;
+
+    const result = await callAI(prompt);
+    res.json({ answer: result.text, provider: result.provider });
+  } catch (e) {
+    res.status(500).json({ error: e.message, answer: '抱歉，AI 服務暫時無法使用。' });
+  }
+});
+
+// ==================== 排程功能 ====================
+// 取得排程列表
+app.get('/api/schedules', async (req, res) => {
+  try {
+    if (useFirebase) {
+      const snapshot = await db.collection('schedules').orderBy('createdAt', 'desc').get();
+      res.json(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    } else {
+      res.json(memoryData.schedules || []);
+    }
+  } catch (e) {
+    res.json([]);
+  }
+});
+
+// 新增排程
+app.post('/api/schedules', async (req, res) => {
+  try {
+    const schedule = {
+      ...req.body,
+      enabled: true,
+      sent: false,
+      createdAt: new Date().toISOString()
+    };
+    
+    if (useFirebase) {
+      const docRef = await db.collection('schedules').add(schedule);
+      res.json({ id: docRef.id, ...schedule });
+    } else {
+      schedule.id = Date.now().toString();
+      if (!memoryData.schedules) memoryData.schedules = [];
+      memoryData.schedules.push(schedule);
+      res.json(schedule);
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 更新排程
+app.put('/api/schedules/:id', async (req, res) => {
+  try {
+    if (useFirebase) {
+      await db.collection('schedules').doc(req.params.id).update(req.body);
+    } else {
+      const idx = (memoryData.schedules || []).findIndex(s => s.id === req.params.id);
+      if (idx >= 0) {
+        memoryData.schedules[idx] = { ...memoryData.schedules[idx], ...req.body };
+      }
+    }
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 刪除排程
+app.delete('/api/schedules/:id', async (req, res) => {
+  try {
+    if (useFirebase) {
+      await db.collection('schedules').doc(req.params.id).delete();
+    } else {
+      memoryData.schedules = (memoryData.schedules || []).filter(s => s.id !== req.params.id);
+    }
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 立即執行排程
+app.post('/api/run-schedule', async (req, res) => {
+  try {
+    const { scheduleId } = req.body;
+    let schedule;
+    
+    if (useFirebase) {
+      const doc = await db.collection('schedules').doc(scheduleId).get();
+      schedule = { id: doc.id, ...doc.data() };
+    } else {
+      schedule = (memoryData.schedules || []).find(s => s.id === scheduleId);
+    }
+    
+    if (!schedule) {
+      return res.json({ success: false, error: '找不到排程' });
+    }
+    
+    // 執行發送
+    const result = await executeSchedule(schedule);
+    
+    // 標記為已發送
+    if (useFirebase) {
+      await db.collection('schedules').doc(scheduleId).update({ sent: true, sentAt: new Date().toISOString() });
+    } else {
+      const idx = memoryData.schedules.findIndex(s => s.id === scheduleId);
+      if (idx >= 0) {
+        memoryData.schedules[idx].sent = true;
+        memoryData.schedules[idx].sentAt = new Date().toISOString();
+      }
+    }
+    
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 執行排程發送
+async function executeSchedule(schedule) {
+  if (!resend) return { success: false, error: 'Email 未設定' };
+  
+  const regs = await getRegistrations();
+  const events = await getEvents();
+  const event = events.find(e => e.id === schedule.eventId);
+  
+  if (!event) return { success: false, error: '找不到活動' };
+  
+  const confirmed = regs.filter(r => r.eventId === schedule.eventId && r.status === 'confirmed');
+  if (confirmed.length === 0) return { success: false, error: '沒有已確認的學員' };
+  
+  // AI 生成通知內容
+  const typeLabels = { reminder: '上課提醒', start: '活動開始', material: '課前資料', feedback: '課後回饋' };
+  let notifyContent = '';
+  
+  try {
+    const prompt = `請為「${event.title}」工作坊撰寫${typeLabels[schedule.type] || '通知'}的 Email 內容。
+活動日期：${event.date}，時間：${event.time}${event.endTime ? '-' + event.endTime : ''}，地點：${event.location}
+要求：簡潔親切、100字內、直接輸出內容`;
+    const aiResult = await callAI(prompt);
+    notifyContent = aiResult.text;
+  } catch (e) {
+    notifyContent = `親愛的學員您好，\n\n提醒您「${event.title}」將於 ${event.date} ${event.time} 在 ${event.location} 舉行，請準時出席！`;
+  }
+  
+  // 發送 Email
+  const senderEmail = process.env.SENDER_EMAIL || 'onboarding@resend.dev';
+  let sent = 0;
+  
+  for (const reg of confirmed) {
+    try {
+      await resend.emails.send({
+        from: senderEmail,
+        to: reg.email,
+        subject: `🔔 ${typeLabels[schedule.type] || '通知'} - ${event.title}`,
+        html: `<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: linear-gradient(135deg, #6366f1, #a855f7); color: white; padding: 20px; border-radius: 10px 10px 0 0;">
+            <h2 style="margin: 0;">🔔 ${typeLabels[schedule.type] || '通知'}</h2>
+            <p style="margin: 5px 0 0; opacity: 0.9;">${event.title}</p>
+          </div>
+          <div style="background: #f8fafc; padding: 20px; border-radius: 0 0 10px 10px;">
+            <p>親愛的 ${reg.name} 您好，</p>
+            <div style="background: white; padding: 15px; border-radius: 8px; margin: 15px 0;">${notifyContent}</div>
+            <div style="background: #e0e7ff; padding: 15px; border-radius: 8px;">
+              <p style="margin: 0;"><strong>📅 日期：</strong>${event.date}</p>
+              <p style="margin: 5px 0;"><strong>⏰ 時間：</strong>${event.time}${event.endTime ? ' - ' + event.endTime : ''}</p>
+              <p style="margin: 0;"><strong>📍 地點：</strong>${event.location}</p>
+            </div>
+            <p style="color: #64748b; font-size: 12px; margin-top: 20px;">此為自動發送的通知，由工作坊管理系統發出。</p>
+          </div>
+        </div>`
+      });
+      sent++;
+    } catch (e) {
+      console.error(`發送給 ${reg.email} 失敗:`, e.message);
+    }
+  }
+  
+  // 通知管理員
+  for (const adminId of ADMIN_IDS) {
+    try {
+      await client.pushMessage({
+        to: adminId,
+        messages: [{
+          type: 'text',
+          text: `✅ 排程通知已發送\n\n📅 ${event.title}\n📨 類型：${typeLabels[schedule.type] || '通知'}\n📧 發送：${sent}/${confirmed.length} 人`
+        }]
+      });
+    } catch (e) {}
+  }
+  
+  return { success: true, sent, total: confirmed.length };
+}
+
+// 取得台灣時間
+function getTaiwanTime() {
+  return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
+}
+
+// 自動檢查排程（每 10 分鐘執行一次）- 使用台灣時間
+async function checkSchedules() {
+  try {
+    let schedules = [];
+    
+    if (useFirebase) {
+      const snapshot = await db.collection('schedules').where('enabled', '==', true).where('sent', '==', false).get();
+      schedules = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } else {
+      schedules = (memoryData.schedules || []).filter(s => s.enabled && !s.sent);
+    }
+    
+    // 使用台灣時間 (UTC+8)
+    const now = getTaiwanTime();
+    console.log(`[排程檢查] 台灣時間: ${now.toLocaleString('zh-TW')}, 待發送: ${schedules.length} 筆`);
+    
+    for (const schedule of schedules) {
+      // 計算排程發送時間（台灣時區）
+      const [year, month, day] = schedule.eventDate.split('-').map(Number);
+      const eventDate = new Date(year, month - 1, day);
+      
+      if (schedule.type === 'feedback') {
+        eventDate.setDate(eventDate.getDate() + (schedule.daysAfter || 1));
+      } else {
+        eventDate.setDate(eventDate.getDate() - (schedule.daysBefore || 1));
+      }
+      eventDate.setHours(schedule.hour || 9, schedule.minute || 0, 0, 0);
+      
+      // 如果已到發送時間
+      if (now >= eventDate) {
+        console.log(`[排程執行] ${schedule.eventTitle} - ${schedule.type}`);
+        await executeSchedule(schedule);
+        
+        // 標記為已發送
+        const sentAt = new Date().toISOString();
+        if (useFirebase) {
+          await db.collection('schedules').doc(schedule.id).update({ sent: true, sentAt });
+        } else {
+          const idx = memoryData.schedules.findIndex(s => s.id === schedule.id);
+          if (idx >= 0) {
+            memoryData.schedules[idx].sent = true;
+            memoryData.schedules[idx].sentAt = sentAt;
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error('檢查排程錯誤:', e.message);
+  }
+}
+
+// 啟動排程檢查（每 10 分鐘）
+setInterval(checkSchedules, 10 * 60 * 1000);
+// 啟動時也執行一次
+setTimeout(checkSchedules, 5000);
 
 // 靜態檔案
 app.use(express.static('public'));
