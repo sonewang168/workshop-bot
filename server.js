@@ -226,6 +226,7 @@ let memoryData = {
     { id: '2', eventId: '1', name: '李小華', email: 'xiaohua@example.com', phone: '0923456789', createdAt: '2026-01-03', status: 'pending' }
   ],
   posters: [],
+  tempPosters: {},
   settings: {}
 };
 
@@ -620,11 +621,133 @@ async function handleMessage(event) {
 
 直接輸出文案，約150-250字。`;
         
-        const { text: poster, provider } = await callAI(prompt);
-        const title = provider ? `🎨 ${ev.title}（${provider}）` : '🎨 生成失敗';
-        messages = [createFlexCard(title, poster, '#a855f7')];
+        // 同時呼叫兩個 AI
+        const [openaiResult, geminiResult] = await Promise.all([
+          callOpenAI(prompt).catch(() => null),
+          callGemini(prompt).catch(() => null)
+        ]);
+        
+        const bubbles = [];
+        
+        // OpenAI 結果
+        if (openaiResult) {
+          bubbles.push({
+            type: 'bubble', size: 'mega',
+            header: { type: 'box', layout: 'vertical', contents: [
+              { type: 'text', text: '🤖 OpenAI GPT-4o', weight: 'bold', color: '#ffffff', size: 'md' },
+              { type: 'text', text: ev.title, size: 'xs', color: '#ffffffcc', wrap: true }
+            ], backgroundColor: '#10b981', paddingAll: '15px' },
+            body: { type: 'box', layout: 'vertical', contents: [
+              { type: 'text', text: openaiResult.slice(0, 500), wrap: true, size: 'sm', color: '#333333' }
+            ], paddingAll: '15px' },
+            footer: { type: 'box', layout: 'vertical', contents: [
+              { type: 'button', action: { type: 'message', label: '✓ 保存此版本', text: `保存文宣 ${eventId} OpenAI` }, style: 'primary', height: 'sm' },
+              { type: 'button', action: { type: 'message', label: '📤 傳送文案', text: openaiResult.slice(0, 300) }, style: 'secondary', height: 'sm', margin: 'sm' }
+            ], paddingAll: '10px' }
+          });
+        }
+        
+        // Gemini 結果
+        if (geminiResult) {
+          bubbles.push({
+            type: 'bubble', size: 'mega',
+            header: { type: 'box', layout: 'vertical', contents: [
+              { type: 'text', text: '✨ Gemini', weight: 'bold', color: '#ffffff', size: 'md' },
+              { type: 'text', text: ev.title, size: 'xs', color: '#ffffffcc', wrap: true }
+            ], backgroundColor: '#6366f1', paddingAll: '15px' },
+            body: { type: 'box', layout: 'vertical', contents: [
+              { type: 'text', text: geminiResult.slice(0, 500), wrap: true, size: 'sm', color: '#333333' }
+            ], paddingAll: '15px' },
+            footer: { type: 'box', layout: 'vertical', contents: [
+              { type: 'button', action: { type: 'message', label: '✓ 保存此版本', text: `保存文宣 ${eventId} Gemini` }, style: 'primary', height: 'sm' },
+              { type: 'button', action: { type: 'message', label: '📤 傳送文案', text: geminiResult.slice(0, 300) }, style: 'secondary', height: 'sm', margin: 'sm' }
+            ], paddingAll: '10px' }
+          });
+        }
+        
+        if (bubbles.length > 0) {
+          // 先存暫存，之後保存用
+          if (!memoryData.tempPosters) memoryData.tempPosters = {};
+          memoryData.tempPosters[eventId] = {
+            openai: openaiResult,
+            gemini: geminiResult,
+            eventTitle: ev.title
+          };
+          
+          messages = [{
+            type: 'flex',
+            altText: `${ev.title} 文宣 - 左右滑動比較`,
+            contents: { type: 'carousel', contents: bubbles }
+          }];
+        } else {
+          messages.push(createFlexCard('🎨 生成失敗', '兩個 AI 都無法生成，請確認 API Key 設定'));
+        }
       } else {
         messages.push({ type: 'text', text: '找不到此活動' });
+      }
+    }
+    else if (text.startsWith('保存文宣 ')) {
+      const parts = text.split(' ');
+      const eventId = parts[1];
+      const provider = parts[2];
+      
+      // 從暫存取得完整文宣
+      const temp = memoryData.tempPosters?.[eventId];
+      if (temp) {
+        const content = provider === 'OpenAI' ? temp.openai : temp.gemini;
+        if (content) {
+          const poster = {
+            eventId,
+            eventTitle: temp.eventTitle,
+            style: '社群貼文',
+            provider,
+            content,
+            createdAt: new Date().toISOString()
+          };
+          
+          if (useFirebase) {
+            await db.collection('posters').add(poster);
+          } else {
+            if (!memoryData.posters) memoryData.posters = [];
+            poster.id = Date.now().toString();
+            memoryData.posters.unshift(poster);
+          }
+          
+          messages.push(createFlexCard('✅ 已保存文宣', `${temp.eventTitle}\n${provider} 版本已保存`, '#10b981'));
+        } else {
+          messages.push({ type: 'text', text: '找不到此文宣內容' });
+        }
+      } else {
+        messages.push({ type: 'text', text: '文宣已過期，請重新生成' });
+      }
+    }
+    else if (text === '已保存文宣' || text === '文宣列表') {
+      let posters = [];
+      if (useFirebase) {
+        const snapshot = await db.collection('posters').orderBy('createdAt', 'desc').limit(5).get();
+        posters = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      } else {
+        posters = (memoryData.posters || []).slice(0, 5);
+      }
+      
+      if (posters.length === 0) {
+        messages.push(createFlexCard('📁 已保存文宣', '還沒有保存任何文宣'));
+      } else {
+        const items = posters.map(p => ({
+          type: 'box', layout: 'vertical', margin: 'lg', contents: [
+            { type: 'text', text: `📅 ${p.eventTitle}`, weight: 'bold', size: 'sm' },
+            { type: 'text', text: `${p.style} · ${p.provider}`, size: 'xs', color: '#888888' },
+            { type: 'text', text: p.content.slice(0, 80) + '...', size: 'xs', color: '#666666', wrap: true, margin: 'sm' }
+          ]
+        }));
+        messages.push({
+          type: 'flex', altText: '已保存文宣',
+          contents: {
+            type: 'bubble',
+            header: { type: 'box', layout: 'vertical', contents: [{ type: 'text', text: `📁 已保存文宣（${posters.length}）`, weight: 'bold', color: '#ffffff' }], backgroundColor: '#a855f7', paddingAll: '15px' },
+            body: { type: 'box', layout: 'vertical', contents: items, paddingAll: '15px' }
+          }
+        });
       }
     }
     else if (text === '報名連結' || text === '連結') {
@@ -671,7 +794,8 @@ async function handleMessage(event) {
 📅 活動列表 - 所有活動
 📋 最新報名 - 報名資料
 🔗 報名連結 - 取得報名網址
-🎨 生成文宣 - AI 文案
+🎨 生成文宣 - AI 文案（雙版本）
+📁 已保存文宣 - 查看保存的文宣
 
 ✅ 確認報名：
 • 確認全部 - 批次確認
