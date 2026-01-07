@@ -670,9 +670,14 @@ function RegistrationsPage({ events, registrations, onRefresh, showToast }) {
 function PosterPage({ events, showToast }) {
   const [selectedEvent, setSelectedEvent] = useState('');
   const [style, setStyle] = useState('social');
-  const [output, setOutput] = useState('');
+  const [outputs, setOutputs] = useState({ openai: '', gemini: '' });
   const [loading, setLoading] = useState(false);
-  const [provider, setProvider] = useState('');
+  const [savedPosters, setSavedPosters] = useState([]);
+
+  // 載入已保存的文宣
+  useEffect(() => {
+    fetch('/api/posters').then(r => r.json()).then(data => setSavedPosters(data || [])).catch(() => {});
+  }, []);
 
   const styles = [
     { id: 'social', label: '📱 社群貼文' },
@@ -681,11 +686,13 @@ function PosterPage({ events, showToast }) {
     { id: 'email', label: '📧 Email 邀請' }
   ];
 
+  const styleLabels = { social: '社群貼文', formal: '正式公告', fun: '活潑風格', email: 'Email 邀請' };
+
   const generate = async () => {
     if (!selectedEvent) { showToast('請選擇活動', 'error'); return; }
     const ev = events.find(e => e.id === selectedEvent);
     setLoading(true);
-    setOutput('');
+    setOutputs({ openai: '', gemini: '' });
     
     const stylePrompts = {
       social: '社群貼文風格，活潑有趣，包含 emoji 和 hashtag',
@@ -695,19 +702,56 @@ function PosterPage({ events, showToast }) {
     };
 
     try {
-      const res = await fetch('/api/generate-poster', {
+      const res = await fetch('/api/generate-poster-dual', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ event: ev, style: stylePrompts[style] })
       });
       const data = await res.json();
-      setOutput(data.text);
-      setProvider(data.provider);
-      showToast(`文宣已生成（${data.provider}）`, 'success');
+      setOutputs({ openai: data.openai || '', gemini: data.gemini || '' });
+      showToast('文宣已生成！', 'success');
     } catch (e) {
       showToast('生成失敗', 'error');
     }
     setLoading(false);
+  };
+
+  const savePoster = async (provider, content) => {
+    const ev = events.find(e => e.id === selectedEvent);
+    try {
+      const res = await fetch('/api/posters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventId: selectedEvent,
+          eventTitle: ev.title,
+          style: styleLabels[style],
+          provider,
+          content,
+          createdAt: new Date().toISOString()
+        })
+      });
+      const data = await res.json();
+      setSavedPosters(prev => [data, ...prev]);
+      showToast(`已保存 ${provider} 文宣`, 'success');
+    } catch (e) {
+      showToast('保存失敗', 'error');
+    }
+  };
+
+  const deletePoster = async (posterId) => {
+    if (!confirm('確定要刪除此文宣？')) return;
+    try {
+      await fetch(`/api/posters/${posterId}`, { method: 'DELETE' });
+      setSavedPosters(prev => prev.filter(p => p.id !== posterId));
+      showToast('已刪除', 'success');
+    } catch (e) {
+      showToast('刪除失敗', 'error');
+    }
+  };
+
+  const clearOutputs = () => {
+    setOutputs({ openai: '', gemini: '' });
   };
 
   const activeEvents = events.filter(e => e.status === 'active');
@@ -715,6 +759,8 @@ function PosterPage({ events, showToast }) {
   return (
     <div>
       <div className="header"><h1>🎨 AI 文宣產生器</h1></div>
+      
+      {/* 產生區 */}
       <div className="card">
         <h3>📅 選擇活動</h3>
         {activeEvents.length === 0 ? (
@@ -727,22 +773,90 @@ function PosterPage({ events, showToast }) {
           </select>
         )}
       </div>
+      
       <div className="card">
         <h3>✨ 選擇風格</h3>
         <div>{styles.map(s => <button key={s.id} className={`style-btn ${style === s.id ? 'active' : ''}`} onClick={() => setStyle(s.id)}>{s.label}</button>)}</div>
       </div>
+      
       <div className="card">
-        <button className="btn btn-primary" onClick={generate} disabled={loading || !selectedEvent}>
-          {loading ? <><span className="loading"></span> 生成中...</> : '🚀 生成文宣'}
-        </button>
-        {output && (
-          <div style={{ marginTop: '20px' }}>
-            <div style={{ marginBottom: '10px', color: '#64748b' }}>由 {provider} 生成</div>
-            <div className="ai-output">{output}</div>
-            <button className="btn btn-secondary" style={{ marginTop: '15px' }} onClick={() => { navigator.clipboard.writeText(output); showToast('已複製', 'success'); }}>📋 複製文案</button>
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <button className="btn btn-primary" onClick={generate} disabled={loading || !selectedEvent}>
+            {loading ? <><span className="loading"></span> 生成中...</> : '🚀 同時產生兩版文宣'}
+          </button>
+          {(outputs.openai || outputs.gemini) && (
+            <button className="btn btn-secondary" onClick={clearOutputs}>🗑️ 清除結果</button>
+          )}
+        </div>
       </div>
+
+      {/* 雙欄顯示結果 */}
+      {(outputs.openai || outputs.gemini) && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
+          {/* OpenAI 結果 */}
+          <div className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h3 style={{ margin: 0 }}>🤖 OpenAI GPT-4o</h3>
+              {outputs.openai && (
+                <button className="btn btn-success btn-sm" onClick={() => savePoster('OpenAI', outputs.openai)}>✓ 挑選保存</button>
+              )}
+            </div>
+            {outputs.openai ? (
+              <>
+                <div className="ai-output">{outputs.openai}</div>
+                <button className="btn btn-secondary btn-sm" style={{ marginTop: '10px' }} onClick={() => { navigator.clipboard.writeText(outputs.openai); showToast('已複製', 'success'); }}>📋 複製</button>
+              </>
+            ) : (
+              <p style={{ color: '#64748b' }}>未設定或生成失敗</p>
+            )}
+          </div>
+          
+          {/* Gemini 結果 */}
+          <div className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h3 style={{ margin: 0 }}>✨ Gemini</h3>
+              {outputs.gemini && (
+                <button className="btn btn-success btn-sm" onClick={() => savePoster('Gemini', outputs.gemini)}>✓ 挑選保存</button>
+              )}
+            </div>
+            {outputs.gemini ? (
+              <>
+                <div className="ai-output">{outputs.gemini}</div>
+                <button className="btn btn-secondary btn-sm" style={{ marginTop: '10px' }} onClick={() => { navigator.clipboard.writeText(outputs.gemini); showToast('已複製', 'success'); }}>📋 複製</button>
+              </>
+            ) : (
+              <p style={{ color: '#64748b' }}>未設定或生成失敗</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 已保存的文宣 */}
+      {savedPosters.length > 0 && (
+        <div className="card" style={{ marginTop: '20px' }}>
+          <h3>📁 已保存的文宣（{savedPosters.length}）</h3>
+          {savedPosters.map(p => {
+            const ev = events.find(e => e.id === p.eventId);
+            const isEnded = ev?.status === 'ended';
+            return (
+              <div key={p.id} style={{ background: '#0f0f1a', borderRadius: '12px', padding: '16px', marginTop: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px', flexWrap: 'wrap', gap: '10px' }}>
+                  <div>
+                    <strong style={{ color: '#a5b4fc' }}>{p.eventTitle}</strong>
+                    <span style={{ marginLeft: '10px', fontSize: '12px', color: '#64748b' }}>{p.style} · {p.provider}</span>
+                    {isEnded && <span className="badge badge-red" style={{ marginLeft: '10px' }}>已結束</span>}
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => { navigator.clipboard.writeText(p.content); showToast('已複製', 'success'); }}>📋 複製</button>
+                    <button className="btn btn-danger btn-sm" onClick={() => deletePoster(p.id)}>🗑️ 刪除</button>
+                  </div>
+                </div>
+                <div style={{ fontSize: '14px', color: '#94a3b8', whiteSpace: 'pre-wrap', maxHeight: '150px', overflow: 'auto' }}>{p.content}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -225,6 +225,7 @@ let memoryData = {
     { id: '1', eventId: '1', name: '王小明', email: 'xiaoming@example.com', phone: '0912345678', createdAt: '2026-01-02', status: 'confirmed' },
     { id: '2', eventId: '1', name: '李小華', email: 'xiaohua@example.com', phone: '0923456789', createdAt: '2026-01-03', status: 'pending' }
   ],
+  posters: [],
   settings: {}
 };
 
@@ -883,6 +884,88 @@ app.post('/api/generate-poster', async (req, res) => {
     
     const result = await callAI(prompt);
     res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 雙AI同時產生文宣
+app.post('/api/generate-poster-dual', async (req, res) => {
+  try {
+    const { event, style } = req.body;
+    const prompt = `你是活動文案專家。請為以下工作坊撰寫${style}的宣傳文案。
+
+【活動資訊 - 請務必正確使用】
+活動名稱：${event.title}
+活動說明：${event.description || '無'}
+活動日期：${event.date}（這是活動舉辦的日期，只有一天）
+活動時間：${event.time || ''}${event.endTime ? ' 至 ' + event.endTime : ''}
+活動地點：${event.location || ''}
+報名名額：${event.maxParticipants} 人
+
+重要提醒：
+- 活動只有一天，日期是 ${event.date}
+- 請勿編造或修改日期時間
+
+直接輸出文案，約150-250字。`;
+    
+    // 同時呼叫兩個 AI
+    const [openaiResult, geminiResult] = await Promise.all([
+      callOpenAI(prompt).catch(() => null),
+      callGemini(prompt).catch(() => null)
+    ]);
+    
+    res.json({
+      openai: openaiResult || '',
+      gemini: geminiResult || ''
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 文宣 CRUD
+app.get('/api/posters', async (req, res) => {
+  try {
+    if (useFirebase) {
+      const snapshot = await db.collection('posters').orderBy('createdAt', 'desc').get();
+      const posters = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      res.json(posters);
+    } else {
+      res.json(memoryData.posters || []);
+    }
+  } catch (e) {
+    res.json([]);
+  }
+});
+
+app.post('/api/posters', async (req, res) => {
+  try {
+    const poster = { ...req.body };
+    if (useFirebase) {
+      const docRef = await db.collection('posters').add(poster);
+      res.json({ id: docRef.id, ...poster });
+    } else {
+      poster.id = Date.now().toString();
+      if (!memoryData.posters) memoryData.posters = [];
+      memoryData.posters.unshift(poster);
+      res.json(poster);
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/posters/:id', async (req, res) => {
+  try {
+    if (useFirebase) {
+      await db.collection('posters').doc(req.params.id).delete();
+    } else {
+      if (memoryData.posters) {
+        memoryData.posters = memoryData.posters.filter(p => p.id !== req.params.id);
+      }
+    }
+    res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
