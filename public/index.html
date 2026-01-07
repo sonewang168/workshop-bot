@@ -539,6 +539,8 @@ function EventsPage({ events, onRefresh, showToast }) {
 
 // 報名管理
 function RegistrationsPage({ events, registrations, onRefresh, showToast }) {
+  const [filterEvent, setFilterEvent] = useState('all');
+
   const confirmReg = async (regId) => {
     try {
       await fetch(`/api/registrations/${regId}`, {
@@ -579,47 +581,87 @@ function RegistrationsPage({ events, registrations, onRefresh, showToast }) {
     }
   };
 
+  // 按活動分組
+  const groupedByEvent = {};
+  registrations.forEach(r => {
+    if (!groupedByEvent[r.eventId]) {
+      groupedByEvent[r.eventId] = [];
+    }
+    groupedByEvent[r.eventId].push(r);
+  });
+
+  // 篩選
+  const filteredGroups = filterEvent === 'all' 
+    ? groupedByEvent 
+    : { [filterEvent]: groupedByEvent[filterEvent] || [] };
+
   return (
     <div>
-      <div className="header"><h1>📋 報名管理</h1></div>
-      <div className="card">
-        {registrations.length === 0 ? (
-          <div className="empty-state"><div className="icon">📋</div><p>目前沒有報名資料</p></div>
-        ) : (
-          <table>
-            <thead><tr><th>姓名</th><th>Email</th><th>電話</th><th>活動</th><th>狀態</th><th>操作</th></tr></thead>
-            <tbody>
-              {registrations.map(r => {
-                const ev = events.find(e => e.id === r.eventId);
-                return (
-                  <tr key={r.id}>
-                    <td>{r.name}</td>
-                    <td>{r.email}</td>
-                    <td>{r.phone || '-'}</td>
-                    <td>{ev?.title || '未知'}</td>
-                    <td><span className={`badge ${r.status === 'confirmed' ? 'badge-green' : r.status === 'cancelled' ? 'badge-red' : 'badge-yellow'}`}>{r.status === 'confirmed' ? '已確認' : r.status === 'cancelled' ? '已取消' : '待確認'}</span></td>
-                    <td>
-                      {r.status === 'pending' && (
-                        <>
-                          <button className="btn btn-success btn-sm" onClick={() => confirmReg(r.id)}>✓ 確認</button>
-                          <button className="btn btn-danger btn-sm" style={{ marginLeft: '8px' }} onClick={() => cancelReg(r.id, r.eventId)}>✗ 取消</button>
-                        </>
-                      )}
-                      {r.status === 'confirmed' && (
-                        <>
-                          <button className="btn btn-secondary btn-sm" onClick={() => revokeReg(r.id)}>↩ 撤銷</button>
-                          <button className="btn btn-danger btn-sm" style={{ marginLeft: '8px' }} onClick={() => cancelReg(r.id, r.eventId)}>✗ 取消</button>
-                        </>
-                      )}
-                      {r.status === 'cancelled' && <span style={{ color: '#64748b' }}>已取消</span>}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
+      <div className="header">
+        <h1>📋 報名管理</h1>
+        <select style={{ padding: '10px 16px', background: '#1e1e2e', border: '1px solid #3a3a4a', borderRadius: '10px', color: '#e2e8f0' }}
+          value={filterEvent} onChange={e => setFilterEvent(e.target.value)}>
+          <option value="all">全部活動</option>
+          {events.map(ev => <option key={ev.id} value={ev.id}>{ev.title}</option>)}
+        </select>
       </div>
+      
+      {registrations.length === 0 ? (
+        <div className="card">
+          <div className="empty-state"><div className="icon">📋</div><p>目前沒有報名資料</p></div>
+        </div>
+      ) : (
+        Object.keys(filteredGroups).map(eventId => {
+          const ev = events.find(e => e.id === eventId);
+          const regs = filteredGroups[eventId] || [];
+          if (regs.length === 0) return null;
+          
+          const confirmed = regs.filter(r => r.status === 'confirmed').length;
+          const pending = regs.filter(r => r.status === 'pending').length;
+          const cancelled = regs.filter(r => r.status === 'cancelled').length;
+          
+          return (
+            <div className="card" key={eventId} style={{ marginBottom: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+                <h3 style={{ margin: 0 }}>📅 {ev?.title || '未知活動'}</h3>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <span className="badge badge-green">已確認 {confirmed}</span>
+                  <span className="badge badge-yellow">待確認 {pending}</span>
+                  <span className="badge badge-gray">已取消 {cancelled}</span>
+                </div>
+              </div>
+              <table>
+                <thead><tr><th>姓名</th><th>Email</th><th>電話</th><th>狀態</th><th>操作</th></tr></thead>
+                <tbody>
+                  {regs.map(r => (
+                    <tr key={r.id}>
+                      <td>{r.name}</td>
+                      <td>{r.email}</td>
+                      <td>{r.phone || '-'}</td>
+                      <td><span className={`badge ${r.status === 'confirmed' ? 'badge-green' : r.status === 'cancelled' ? 'badge-red' : 'badge-yellow'}`}>{r.status === 'confirmed' ? '已確認' : r.status === 'cancelled' ? '已取消' : '待確認'}</span></td>
+                      <td>
+                        {r.status === 'pending' && (
+                          <>
+                            <button className="btn btn-success btn-sm" onClick={() => confirmReg(r.id)}>✓ 確認</button>
+                            <button className="btn btn-danger btn-sm" style={{ marginLeft: '8px' }} onClick={() => cancelReg(r.id, r.eventId)}>✗ 取消</button>
+                          </>
+                        )}
+                        {r.status === 'confirmed' && (
+                          <>
+                            <button className="btn btn-secondary btn-sm" onClick={() => revokeReg(r.id)}>↩ 撤銷</button>
+                            <button className="btn btn-danger btn-sm" style={{ marginLeft: '8px' }} onClick={() => cancelReg(r.id, r.eventId)}>✗ 取消</button>
+                          </>
+                        )}
+                        {r.status === 'cancelled' && <span style={{ color: '#64748b' }}>-</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        })
+      )}
     </div>
   );
 }
