@@ -760,11 +760,21 @@ async function handleMessage(event) {
         const bubbles = activeEvents.slice(0, 10).map(ev => {
           const url = `${baseUrl}?register=${ev.id}`;
           const spotsLeft = ev.maxParticipants - (ev.registrations || 0);
+          // 使用 QR Code API
+          const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
           return {
             type: 'bubble',
             header: { type: 'box', layout: 'vertical', contents: [
               { type: 'text', text: '🔗 報名連結', weight: 'bold', color: '#ffffff', size: 'sm' }
             ], backgroundColor: '#3b82f6', paddingAll: '12px' },
+            hero: {
+              type: 'image',
+              url: qrUrl,
+              size: 'full',
+              aspectRatio: '1:1',
+              aspectMode: 'fit',
+              backgroundColor: '#ffffff'
+            },
             body: { type: 'box', layout: 'vertical', contents: [
               { type: 'text', text: ev.title, weight: 'bold', size: 'md', wrap: true },
               { type: 'text', text: `📅 ${ev.date} ${ev.time || ''}${ev.endTime ? '-' + ev.endTime : ''}`, size: 'xs', color: '#888888', margin: 'md' },
@@ -780,9 +790,64 @@ async function handleMessage(event) {
         
         messages.push({
           type: 'flex',
-          altText: '報名連結 - 左右滑動查看',
+          altText: '報名連結與 QR Code - 左右滑動查看',
           contents: { type: 'carousel', contents: bubbles }
         });
+      }
+    }
+    else if (text.startsWith('QR ') || text.startsWith('qr ') || text === 'QR' || text === 'qr' || text === 'qrcode') {
+      const events = await getEvents();
+      const activeEvents = events.filter(e => e.status === 'active');
+      if (activeEvents.length === 0) {
+        messages.push(createFlexCard('📱 QR Code', '目前沒有進行中的活動'));
+      } else if (activeEvents.length === 1 || text === 'QR' || text === 'qr' || text === 'qrcode') {
+        // 只有一個活動或未指定，顯示選擇
+        messages.push({
+          type: 'flex', altText: '選擇活動',
+          contents: {
+            type: 'bubble',
+            header: { type: 'box', layout: 'vertical', contents: [{ type: 'text', text: '📱 選擇活動產生 QR Code', weight: 'bold', color: '#ffffff' }], backgroundColor: '#3b82f6', paddingAll: '15px' },
+            body: { type: 'box', layout: 'vertical', contents: activeEvents.map(ev => ({ type: 'button', action: { type: 'message', label: ev.title.slice(0, 20), text: `QR ${ev.id}` }, style: 'secondary', margin: 'sm' })), paddingAll: '15px' }
+          }
+        });
+      } else {
+        // 指定活動 ID
+        const eventId = text.split(' ')[1];
+        const ev = activeEvents.find(e => e.id === eventId);
+        if (ev) {
+          const baseUrl = process.env.WEB_URL || 'https://workshop-bot-ut8f.onrender.com';
+          const url = `${baseUrl}?register=${ev.id}`;
+          const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(url)}`;
+          
+          // 傳送大圖 QR Code
+          messages.push({
+            type: 'flex', altText: `${ev.title} QR Code`,
+            contents: {
+              type: 'bubble', size: 'mega',
+              header: { type: 'box', layout: 'vertical', contents: [
+                { type: 'text', text: '📱 報名 QR Code', weight: 'bold', color: '#ffffff' },
+                { type: 'text', text: ev.title, size: 'sm', color: '#ffffffcc', wrap: true }
+              ], backgroundColor: '#3b82f6', paddingAll: '15px' },
+              hero: {
+                type: 'image',
+                url: qrUrl,
+                size: 'full',
+                aspectRatio: '1:1',
+                aspectMode: 'fit',
+                backgroundColor: '#ffffff'
+              },
+              body: { type: 'box', layout: 'vertical', contents: [
+                { type: 'text', text: '📅 ' + ev.date + ' ' + (ev.time || '') + (ev.endTime ? '-' + ev.endTime : ''), size: 'sm', color: '#555555' },
+                { type: 'text', text: '📍 ' + (ev.location || '待定'), size: 'sm', color: '#555555', margin: 'sm' },
+                { type: 'text', text: '掃描上方 QR Code 即可報名', size: 'xs', color: '#888888', margin: 'lg', align: 'center' }
+              ], paddingAll: '15px' },
+              footer: { type: 'box', layout: 'vertical', contents: [
+                { type: 'button', action: { type: 'uri', label: '📥 下載 QR Code 圖片', uri: qrUrl }, style: 'primary', height: 'sm' },
+                { type: 'button', action: { type: 'message', label: '📤 傳送連結', text: `📝 ${ev.title}\n\n🔗 報名連結：\n${url}` }, style: 'secondary', height: 'sm', margin: 'sm' }
+              ], paddingAll: '10px' }
+            }
+          });
+        }
       }
     }
     else if (text === '確認全部' || text === '確認所有報名') {
@@ -815,7 +880,8 @@ async function handleMessage(event) {
 📊 總覽 - 系統統計
 📅 活動列表 - 所有活動
 📋 最新報名 - 報名資料
-🔗 報名連結 - 取得報名網址
+🔗 報名連結 - 報名網址+QR Code
+📱 QR - 產生大張 QR Code
 🎨 生成文宣 - AI 文案（雙版本）
 📁 已保存文宣 - 查看保存的文宣
 
