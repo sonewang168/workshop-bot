@@ -756,11 +756,33 @@ async function handleMessage(event) {
       if (activeEvents.length === 0) {
         messages.push(createFlexCard('🔗 報名連結', '目前沒有進行中的活動'));
       } else {
-        const links = activeEvents.map(ev => {
-          const url = `${process.env.WEB_URL || 'https://workshop-bot-ut8f.onrender.com'}?register=${ev.id}`;
-          return `📅 ${ev.title}\n${url}`;
-        }).join('\n\n');
-        messages.push(createFlexCard('🔗 報名連結', links, '#3b82f6'));
+        const baseUrl = process.env.WEB_URL || 'https://workshop-bot-ut8f.onrender.com';
+        const bubbles = activeEvents.slice(0, 10).map(ev => {
+          const url = `${baseUrl}?register=${ev.id}`;
+          const spotsLeft = ev.maxParticipants - (ev.registrations || 0);
+          return {
+            type: 'bubble',
+            header: { type: 'box', layout: 'vertical', contents: [
+              { type: 'text', text: '🔗 報名連結', weight: 'bold', color: '#ffffff', size: 'sm' }
+            ], backgroundColor: '#3b82f6', paddingAll: '12px' },
+            body: { type: 'box', layout: 'vertical', contents: [
+              { type: 'text', text: ev.title, weight: 'bold', size: 'md', wrap: true },
+              { type: 'text', text: `📅 ${ev.date} ${ev.time || ''}${ev.endTime ? '-' + ev.endTime : ''}`, size: 'xs', color: '#888888', margin: 'md' },
+              { type: 'text', text: `📍 ${ev.location || '待定'}`, size: 'xs', color: '#888888', margin: 'sm' },
+              { type: 'text', text: `👥 剩餘名額：${spotsLeft}/${ev.maxParticipants}`, size: 'xs', color: spotsLeft > 0 ? '#10b981' : '#ef4444', margin: 'sm' }
+            ], paddingAll: '15px' },
+            footer: { type: 'box', layout: 'vertical', contents: [
+              { type: 'button', action: { type: 'uri', label: '🔗 開啟報名頁', uri: url }, style: 'primary', height: 'sm' },
+              { type: 'button', action: { type: 'message', label: '📤 傳送連結', text: `📝 ${ev.title}\n\n🔗 報名連結：\n${url}` }, style: 'secondary', height: 'sm', margin: 'sm' }
+            ], paddingAll: '10px' }
+          };
+        });
+        
+        messages.push({
+          type: 'flex',
+          altText: '報名連結 - 左右滑動查看',
+          contents: { type: 'carousel', contents: bubbles }
+        });
       }
     }
     else if (text === '確認全部' || text === '確認所有報名') {
