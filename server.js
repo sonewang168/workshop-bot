@@ -884,6 +884,7 @@ async function handleMessage(event) {
 📱 QR - 產生大張 QR Code
 🎨 生成文宣 - AI 文案（雙版本）
 📁 已保存文宣 - 查看保存的文宣
+🌐 網頁 - 開啟管理後台
 
 ✅ 確認報名：
 • 確認全部 - 批次確認
@@ -892,6 +893,32 @@ async function handleMessage(event) {
 🔥 Firebase 已連線
 ${aiStatus}`;
       messages.push(createFlexCard('❓ 使用說明', helpText, '#6366f1'));
+    }
+    else if (text === '網頁' || text === '網頁版' || text === '後台' || text === '管理') {
+      const baseUrl = process.env.WEB_URL || 'https://workshop-bot-ut8f.onrender.com';
+      messages.push({
+        type: 'flex', altText: '網頁管理後台',
+        contents: {
+          type: 'bubble',
+          header: { type: 'box', layout: 'vertical', contents: [
+            { type: 'text', text: '🌐 網頁管理後台', weight: 'bold', color: '#ffffff', size: 'lg' }
+          ], backgroundColor: '#6366f1', paddingAll: '20px' },
+          body: { type: 'box', layout: 'vertical', contents: [
+            { type: 'text', text: '功能列表', weight: 'bold', size: 'md' },
+            { type: 'box', layout: 'vertical', margin: 'lg', contents: [
+              { type: 'text', text: '📊 儀表板 - 總覽統計', size: 'sm', color: '#555555' },
+              { type: 'text', text: '📅 活動管理 - 新增/編輯活動', size: 'sm', color: '#555555', margin: 'sm' },
+              { type: 'text', text: '📋 報名管理 - 確認/取消報名', size: 'sm', color: '#555555', margin: 'sm' },
+              { type: 'text', text: '🎨 AI 文宣 - 雙版本產生', size: 'sm', color: '#555555', margin: 'sm' },
+              { type: 'text', text: '🏆 證書產生 - 下載/寄送', size: 'sm', color: '#555555', margin: 'sm' }
+            ]}
+          ], paddingAll: '20px' },
+          footer: { type: 'box', layout: 'vertical', contents: [
+            { type: 'button', action: { type: 'uri', label: '🚀 開啟網頁後台', uri: baseUrl }, style: 'primary', height: 'sm' },
+            { type: 'button', action: { type: 'message', label: '📤 分享連結', text: `🌐 工作坊管理後台\n\n${baseUrl}` }, style: 'secondary', height: 'sm', margin: 'sm' }
+          ], paddingAll: '15px' }
+        }
+      });
     }
     else if (text === 'myid' || text === '我的ID') {
       messages.push({ type: 'text', text: `您的 User ID：\n${userId}` });
