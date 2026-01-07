@@ -1994,21 +1994,23 @@ function GuidePage({ events, registrations, showToast }) {
     const [startH, startM] = (ev.time || '09:00').split(':');
     const [endH, endM] = (ev.endTime || '17:00').split(':');
     
-    // Google Calendar 格式: YYYYMMDDTHHMMSS (本地時間需加時區)
+    // Google Calendar 格式: YYYYMMDDTHHMMSS
     const startDateTime = `${year}${month}${day}T${startH}${startM}00`;
     const endDateTime = `${year}${month}${day}T${endH}${endM}00`;
     
-    // 建立連結
-    const baseUrl = 'https://calendar.google.com/calendar/render';
-    const params = new URLSearchParams();
-    params.append('action', 'TEMPLATE');
-    params.append('text', ev.title);
-    params.append('dates', `${startDateTime}/${endDateTime}`);
-    params.append('ctz', 'Asia/Taipei');
-    if (ev.location) params.append('location', ev.location);
-    if (ev.description) params.append('details', ev.description);
+    // 使用 www.google.com 和正確的路徑
+    const baseUrl = 'https://www.google.com/calendar/render';
+    const params = [
+      'action=TEMPLATE',
+      `text=${encodeURIComponent(ev.title)}`,
+      `dates=${startDateTime}/${endDateTime}`,
+      `ctz=Asia/Taipei`
+    ];
+    if (ev.location) params.push(`location=${encodeURIComponent(ev.location)}`);
+    if (ev.description) params.push(`details=${encodeURIComponent(ev.description)}`);
     
-    return `${baseUrl}?${params.toString()}`;
+    return `${baseUrl}?${params.join('&')}`;
+  };
   };
 
   // AI 客服回答
