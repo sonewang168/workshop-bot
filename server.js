@@ -643,7 +643,7 @@ async function handleMessage(event) {
               { type: 'text', text: openaiResult.slice(0, 500), wrap: true, size: 'sm', color: '#333333' }
             ], paddingAll: '15px' },
             footer: { type: 'box', layout: 'vertical', contents: [
-              { type: 'button', action: { type: 'message', label: '✓ 保存此版本', text: `保存文宣 ${eventId} OpenAI` }, style: 'primary', height: 'sm' },
+              { type: 'button', action: { type: 'postback', label: '✓ 保存此版本', data: `action=save_poster&eventId=${eventId}&provider=OpenAI` }, style: 'primary', height: 'sm' },
               { type: 'button', action: { type: 'message', label: '📤 傳送文案', text: openaiResult.slice(0, 300) }, style: 'secondary', height: 'sm', margin: 'sm' }
             ], paddingAll: '10px' }
           });
@@ -661,7 +661,7 @@ async function handleMessage(event) {
               { type: 'text', text: geminiResult.slice(0, 500), wrap: true, size: 'sm', color: '#333333' }
             ], paddingAll: '15px' },
             footer: { type: 'box', layout: 'vertical', contents: [
-              { type: 'button', action: { type: 'message', label: '✓ 保存此版本', text: `保存文宣 ${eventId} Gemini` }, style: 'primary', height: 'sm' },
+              { type: 'button', action: { type: 'postback', label: '✓ 保存此版本', data: `action=save_poster&eventId=${eventId}&provider=Gemini` }, style: 'primary', height: 'sm' },
               { type: 'button', action: { type: 'message', label: '📤 傳送文案', text: geminiResult.slice(0, 300) }, style: 'secondary', height: 'sm', margin: 'sm' }
             ], paddingAll: '10px' }
           });
@@ -915,9 +915,9 @@ ${aiStatus}`;
               { type: 'text', text: `👥 已確認：${confirmed.length} 人`, size: 'xs', color: '#10b981', margin: 'sm' }
             ], paddingAll: '15px' },
             footer: { type: 'box', layout: 'vertical', contents: [
-              { type: 'button', action: { type: 'message', label: '⏰ 上課提醒', text: `發送通知 ${ev.id} reminder` }, style: 'primary', height: 'sm' },
-              { type: 'button', action: { type: 'message', label: '🚀 活動開始', text: `發送通知 ${ev.id} start` }, style: 'secondary', height: 'sm', margin: 'sm' },
-              { type: 'button', action: { type: 'message', label: '📚 課前資料', text: `發送通知 ${ev.id} material` }, style: 'secondary', height: 'sm', margin: 'sm' }
+              { type: 'button', action: { type: 'postback', label: '⏰ 上課提醒', data: `action=send_notification&eventId=${ev.id}&type=reminder` }, style: 'primary', height: 'sm' },
+              { type: 'button', action: { type: 'postback', label: '🚀 活動開始', data: `action=send_notification&eventId=${ev.id}&type=start` }, style: 'secondary', height: 'sm', margin: 'sm' },
+              { type: 'button', action: { type: 'postback', label: '📚 課前資料', data: `action=send_notification&eventId=${ev.id}&type=material` }, style: 'secondary', height: 'sm', margin: 'sm' }
             ], paddingAll: '10px' }
           };
         });
@@ -1011,7 +1011,7 @@ ${aiStatus}`;
               { type: 'text', text: `👥 已確認學員：${confirmed.length} 人`, size: 'xs', color: '#8b5cf6', margin: 'sm' }
             ], paddingAll: '15px' },
             footer: { type: 'box', layout: 'vertical', contents: [
-              { type: 'button', action: { type: 'message', label: '📧 發送全部證書', text: `發送證書 ${ev.id}` }, style: 'primary', height: 'sm' }
+              { type: 'button', action: { type: 'postback', label: '📧 發送全部證書', data: `action=send_certificates&eventId=${ev.id}` }, style: 'primary', height: 'sm' }
             ], paddingAll: '10px' }
           };
         });
@@ -1190,6 +1190,9 @@ app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
     await Promise.all(req.body.events.map(async event => {
       if (event.type === 'message' && event.message.type === 'text') {
         await handleMessage(event);
+      } else if (event.type === 'postback') {
+        // 處理按鈕點擊事件
+        await handlePostback(event);
       } else if (event.type === 'follow') {
         await client.replyMessage({ replyToken: event.replyToken, messages: [{ type: 'text', text: `歡迎使用工作坊管理系統！🎓\n\n輸入「說明」查看指令`, quickReply: createQuickReply() }] });
       }
@@ -1200,6 +1203,187 @@ app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
     res.status(200).end();
   }
 });
+
+// 處理 Postback 事件（按鈕點擊）
+async function handlePostback(event) {
+  const userId = event.source.userId;
+  const data = event.postback.data;
+  
+  // 解析 postback data
+  const params = new URLSearchParams(data);
+  const action = params.get('action');
+  const eventId = params.get('eventId');
+  const type = params.get('type');
+  const provider = params.get('provider');
+  
+  try {
+    // 保存文宣
+    if (action === 'save_poster' && eventId && provider) {
+      const tempPoster = memoryData.tempPosters?.[eventId]?.[provider.toLowerCase()];
+      if (tempPoster) {
+        const events = await getEvents();
+        const ev = events.find(e => e.id === eventId);
+        
+        if (useFirebase) {
+          await db.collection('posters').add({
+            eventId,
+            eventTitle: ev?.title || '',
+            provider,
+            content: tempPoster,
+            style: '社群活潑',
+            createdAt: new Date().toISOString()
+          });
+        }
+        
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: `✅ 已保存 ${provider} 版本文宣！\n\n輸入「已保存文宣」查看所有保存的文宣` }]
+        });
+      } else {
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: '❌ 找不到暫存的文宣，請重新生成' }]
+        });
+      }
+      return;
+    }
+    
+    // 發送通知
+    if (action === 'send_notification' && eventId && type) {
+      const events = await getEvents();
+      const ev = events.find(e => e.id === eventId);
+      if (!ev) {
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: '❌ 找不到活動' }]
+        });
+        return;
+      }
+      
+      // AI 生成通知內容
+      const typeLabels = { reminder: '上課提醒', start: '活動開始', material: '課前資料', feedback: '課後回饋' };
+      let notifyContent = '';
+      try {
+        const prompt = `請為「${ev.title}」工作坊撰寫${typeLabels[type] || '通知'}的簡短通知。日期：${ev.date}，時間：${ev.time}，地點：${ev.location}。80字內、親切專業。`;
+        const result = await callAI(prompt);
+        notifyContent = result.text;
+      } catch (e) {
+        notifyContent = `親愛的學員您好，提醒您「${ev.title}」將於 ${ev.date} ${ev.time} 在 ${ev.location} 舉行！`;
+      }
+      
+      // 發送 Email
+      const regs = await getRegistrations();
+      const confirmed = regs.filter(r => r.eventId === eventId && r.status === 'confirmed');
+      let sent = 0;
+      
+      if (resend && confirmed.length > 0) {
+        const senderEmail = process.env.SENDER_EMAIL || 'onboarding@resend.dev';
+        for (const reg of confirmed) {
+          try {
+            await resend.emails.send({
+              from: senderEmail,
+              to: reg.email,
+              subject: `🔔 ${typeLabels[type] || '通知'} - ${ev.title}`,
+              html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
+                <div style="background:linear-gradient(135deg,#6366f1,#a855f7);color:white;padding:20px;border-radius:10px 10px 0 0;">
+                  <h2 style="margin:0;">🔔 ${typeLabels[type] || '通知'}</h2>
+                </div>
+                <div style="background:#f8fafc;padding:20px;border-radius:0 0 10px 10px;">
+                  <p>親愛的 ${reg.name} 您好，</p>
+                  <p>${notifyContent}</p>
+                  <div style="background:#e0e7ff;padding:15px;border-radius:8px;margin:15px 0;">
+                    <p style="margin:0;"><strong>📅</strong> ${ev.date}</p>
+                    <p style="margin:5px 0;"><strong>⏰</strong> ${ev.time}${ev.endTime ? ' - ' + ev.endTime : ''}</p>
+                    <p style="margin:0;"><strong>📍</strong> ${ev.location}</p>
+                  </div>
+                </div>
+              </div>`
+            });
+            sent++;
+          } catch (e) {}
+        }
+      }
+      
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `✅ ${typeLabels[type] || '通知'}已發送！\n\n📧 成功：${sent}/${confirmed.length} 人` }]
+      });
+      return;
+    }
+    
+    // 發送證書
+    if (action === 'send_certificates' && eventId) {
+      const events = await getEvents();
+      const ev = events.find(e => e.id === eventId);
+      if (!ev) {
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: '❌ 找不到活動' }]
+        });
+        return;
+      }
+      
+      const regs = await getRegistrations();
+      const confirmed = regs.filter(r => r.eventId === eventId && r.status === 'confirmed');
+      let sent = 0;
+      
+      if (resend && confirmed.length > 0) {
+        const senderEmail = process.env.SENDER_EMAIL || 'onboarding@resend.dev';
+        const dateObj = new Date(ev.date);
+        const dateStr = dateObj.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+        
+        for (const reg of confirmed) {
+          try {
+            await resend.emails.send({
+              from: senderEmail,
+              to: reg.email,
+              subject: `🏆 結業證書 - ${ev.title}`,
+              html: `<div style="font-family:serif;max-width:700px;margin:0 auto;border:8px double #6366f1;padding:40px;background:linear-gradient(135deg,#faf5ff,#f0f9ff);">
+                <div style="text-align:center;">
+                  <h1 style="color:#6366f1;font-size:36px;margin:0;">🏆 結業證書</h1>
+                  <p style="color:#64748b;margin:10px 0 30px;">Certificate of Completion</p>
+                  <div style="border-top:2px solid #6366f1;border-bottom:2px solid #6366f1;padding:20px;margin:20px 0;">
+                    <p style="font-size:14px;color:#64748b;margin:0;">This is to certify that</p>
+                    <h2 style="font-size:32px;color:#1e293b;margin:10px 0;">${reg.name}</h2>
+                    <p style="font-size:14px;color:#64748b;margin:0;">has successfully completed</p>
+                    <h3 style="font-size:24px;color:#6366f1;margin:10px 0;">${ev.title}</h3>
+                    <p style="color:#64748b;">Date: ${dateStr}</p>
+                  </div>
+                  <p style="color:#64748b;font-size:12px;margin-top:30px;">工作坊管理系統 自動發送</p>
+                </div>
+              </div>`
+            });
+            sent++;
+          } catch (e) {}
+        }
+        
+        // 更新活動證書數
+        await updateEvent(eventId, { certificates: sent });
+      }
+      
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `✅ 證書已發送！\n\n📧 成功：${sent}/${confirmed.length} 人` }]
+      });
+      return;
+    }
+    
+    // 其他未處理的 postback
+    await client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{ type: 'text', text: '收到您的操作！' }]
+    });
+    
+  } catch (error) {
+    console.error('Postback error:', error);
+    try {
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: '❌ 操作失敗，請稍後再試' }]
+      });
+    } catch (e) {}
+  }
+}
 
 // ==================== API 端點 ====================
 app.use(express.json());

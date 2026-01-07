@@ -1948,6 +1948,22 @@ function GuidePage({ events, registrations, showToast }) {
   const [aiQuestion, setAiQuestion] = useState('');
   const [aiAnswer, setAiAnswer] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
+  const featureDetailRef = React.useRef(null);
+
+  // 點擊功能卡片
+  const handleFeatureClick = (featureId) => {
+    const newActive = activeFeature === featureId ? null : featureId;
+    setActiveFeature(newActive);
+    
+    // 如果展開功能，自動滾動到功能詳情
+    if (newActive) {
+      setTimeout(() => {
+        if (featureDetailRef.current) {
+          featureDetailRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 100);
+    }
+  };
 
   // 計算統計數據
   const stats = {
@@ -1971,12 +1987,30 @@ function GuidePage({ events, registrations, showToast }) {
   });
 
   // 生成 Google Calendar 連結
+  // 生成 Google Calendar 連結（正確格式）
   const generateCalendarLink = (ev) => {
-    const startDate = ev.date.replace(/-/g, '');
-    const startTime = (ev.time || '09:00').replace(/:/g, '') + '00';
-    const endTime = (ev.endTime || '17:00').replace(/:/g, '') + '00';
-    const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(ev.title)}&dates=${startDate}T${startTime}/${startDate}T${endTime}&location=${encodeURIComponent(ev.location || '')}&details=${encodeURIComponent(ev.description || '')}`;
-    return url;
+    // 解析日期 YYYY-MM-DD
+    const [year, month, day] = ev.date.split('-');
+    // 解析時間 HH:MM
+    const [startH, startM] = (ev.time || '09:00').split(':');
+    const [endH, endM] = (ev.endTime || '17:00').split(':');
+    
+    // Google Calendar 格式: YYYYMMDDTHHMMSS (本地時間需加時區)
+    const startDateTime = `${year}${month}${day}T${startH}${startM}00`;
+    const endDateTime = `${year}${month}${day}T${endH}${endM}00`;
+    
+    // 建立連結
+    const baseUrl = 'https://calendar.google.com/calendar/render';
+    const params = new URLSearchParams();
+    params.append('action', 'TEMPLATE');
+    params.append('text', ev.title);
+    params.append('dates', `${startDateTime}/${endDateTime}`);
+    params.append('ctz', 'Asia/Taipei');
+    if (ev.location) params.append('location', ev.location);
+    if (ev.description) params.append('details', ev.description);
+    
+    return `${baseUrl}?${params.toString()}`;
+  };
   };
 
   // AI 客服回答
@@ -2037,16 +2071,20 @@ function GuidePage({ events, registrations, showToast }) {
       {/* 功能卡片 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '15px', marginBottom: '20px' }}>
         {features.map(f => (
-          <div key={f.id} onClick={() => setActiveFeature(activeFeature === f.id ? null : f.id)}
-            style={{ background: activeFeature === f.id ? f.color : '#1a1a2e', padding: '20px', borderRadius: '12px', cursor: 'pointer', border: `2px solid ${activeFeature === f.id ? f.color : '#2a2a4a'}`, transition: 'all 0.3s' }}>
+          <div key={f.id} onClick={() => handleFeatureClick(f.id)}
+            style={{ background: activeFeature === f.id ? f.color : '#1a1a2e', padding: '20px', borderRadius: '12px', cursor: 'pointer', border: `2px solid ${activeFeature === f.id ? f.color : '#2a2a4a'}`, transition: 'all 0.3s', position: 'relative' }}>
             <div style={{ fontSize: '32px', marginBottom: '10px' }}>{f.icon}</div>
             <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>{f.title}</div>
             <div style={{ fontSize: '12px', color: activeFeature === f.id ? '#fff' : '#64748b' }}>{f.desc}</div>
+            {activeFeature === f.id && (
+              <div style={{ position: 'absolute', bottom: '5px', right: '10px', fontSize: '10px', color: '#fff' }}>▼ 展開中</div>
+            )}
           </div>
         ))}
       </div>
 
-      {/* 功能詳情 */}
+      {/* 功能詳情 - 加入 ref 方便滾動 */}
+      <div ref={featureDetailRef}>
       {activeFeature === 'calendar' && (
         <div className="card">
           <h3>📅 整合 Google Calendar</h3>
@@ -2231,6 +2269,7 @@ function GuidePage({ events, registrations, showToast }) {
           })()}
         </div>
       )}
+      </div>
 
       {/* 操作指南 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px', marginTop: '20px' }}>
