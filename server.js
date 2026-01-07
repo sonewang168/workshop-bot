@@ -881,19 +881,256 @@ async function handleMessage(event) {
 📊 總覽 - 系統統計
 📅 活動列表 - 所有活動
 📋 最新報名 - 報名資料
-🔗 報名連結 - 報名網址+QR Code
-📱 QR - 產生大張 QR Code
-🎨 生成文宣 - AI 文案（雙版本）
-📁 已保存文宣 - 查看保存的文宣
+🔗 報名連結 - QR Code 報名
+🎨 生成文宣 - AI 文案
+🔔 通知 - 發送上課提醒
+🏆 證書 - 發送結業證書
+🎪 作品牆 - 學員作品
+
+✅ 確認全部 - 批次確認報名
 🌐 網頁 - 開啟管理後台
 
-✅ 確認報名：
-• 確認全部 - 批次確認
-• 確認 姓名 - 單筆確認
-
-🔥 Firebase 已連線
 ${aiStatus}`;
       messages.push(createFlexCard('❓ 使用說明', helpText, '#6366f1'));
+    }
+    // === 通知功能 ===
+    else if (text === '通知' || text === '發送通知' || text === '提醒' || text === '上課提醒') {
+      const events = await getEvents();
+      const regs = await getRegistrations();
+      const activeEvents = events.filter(e => e.status === 'active');
+      if (activeEvents.length === 0) {
+        messages.push(createFlexCard('🔔 發送通知', '目前沒有進行中的活動'));
+      } else {
+        const bubbles = activeEvents.slice(0, 10).map(ev => {
+          const confirmed = regs.filter(r => r.eventId === ev.id && r.status === 'confirmed');
+          return {
+            type: 'bubble',
+            header: { type: 'box', layout: 'vertical', contents: [
+              { type: 'text', text: '🔔 發送通知', weight: 'bold', color: '#ffffff', size: 'sm' }
+            ], backgroundColor: '#f59e0b', paddingAll: '12px' },
+            body: { type: 'box', layout: 'vertical', contents: [
+              { type: 'text', text: ev.title, weight: 'bold', size: 'md', wrap: true },
+              { type: 'text', text: `📅 ${ev.date} ${ev.time || ''}`, size: 'xs', color: '#888888', margin: 'md' },
+              { type: 'text', text: `👥 已確認：${confirmed.length} 人`, size: 'xs', color: '#10b981', margin: 'sm' }
+            ], paddingAll: '15px' },
+            footer: { type: 'box', layout: 'vertical', contents: [
+              { type: 'button', action: { type: 'message', label: '⏰ 上課提醒', text: `發送通知 ${ev.id} reminder` }, style: 'primary', height: 'sm' },
+              { type: 'button', action: { type: 'message', label: '🚀 活動開始', text: `發送通知 ${ev.id} start` }, style: 'secondary', height: 'sm', margin: 'sm' },
+              { type: 'button', action: { type: 'message', label: '📚 課前資料', text: `發送通知 ${ev.id} material` }, style: 'secondary', height: 'sm', margin: 'sm' }
+            ], paddingAll: '10px' }
+          };
+        });
+        messages.push({ type: 'flex', altText: '選擇活動發送通知', contents: { type: 'carousel', contents: bubbles } });
+      }
+    }
+    else if (text.startsWith('發送通知 ')) {
+      const parts = text.split(' ');
+      const eventId = parts[1];
+      const notifyType = parts[2] || 'reminder';
+      const ev = await getEvent(eventId);
+      
+      if (ev && resend) {
+        const regs = await getRegistrations();
+        const confirmed = regs.filter(r => r.eventId === eventId && r.status === 'confirmed');
+        
+        if (confirmed.length === 0) {
+          messages.push(createFlexCard('🔔 發送通知', '此活動沒有已確認的學員', '#ef4444'));
+        } else {
+          // AI 生成通知內容
+          const typeLabels = { reminder: '上課提醒', start: '活動開始', material: '課前資料', feedback: '課後回饋' };
+          const prompt = `請為「${ev.title}」工作坊撰寫${typeLabels[notifyType] || '通知'}的 Email 內容。
+活動日期：${ev.date}，時間：${ev.time}${ev.endTime ? '-' + ev.endTime : ''}，地點：${ev.location}
+要求：簡潔親切、100字內、直接輸出內容`;
+          
+          let notifyContent = '';
+          try {
+            const aiResult = await callAI(prompt);
+            notifyContent = aiResult.text;
+          } catch (e) {
+            notifyContent = `親愛的學員您好，\n\n提醒您「${ev.title}」將於 ${ev.date} ${ev.time} 在 ${ev.location} 舉行，請準時出席！`;
+          }
+          
+          // 發送 Email
+          const senderEmail = process.env.SENDER_EMAIL || 'onboarding@resend.dev';
+          let sent = 0;
+          for (const reg of confirmed) {
+            try {
+              await resend.emails.send({
+                from: senderEmail,
+                to: reg.email,
+                subject: `🔔 ${typeLabels[notifyType] || '通知'} - ${ev.title}`,
+                html: `<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                  <div style="background: linear-gradient(135deg, #f59e0b, #f97316); color: white; padding: 20px; border-radius: 10px 10px 0 0;">
+                    <h2 style="margin: 0;">🔔 ${typeLabels[notifyType] || '通知'}</h2>
+                    <p style="margin: 5px 0 0; opacity: 0.9;">${ev.title}</p>
+                  </div>
+                  <div style="background: #f8fafc; padding: 20px; border-radius: 0 0 10px 10px;">
+                    <p>親愛的 ${reg.name} 您好，</p>
+                    <div style="background: white; padding: 15px; border-radius: 8px; margin: 15px 0;">${notifyContent}</div>
+                    <div style="background: #fef3c7; padding: 15px; border-radius: 8px;">
+                      <p style="margin: 0;"><strong>📅 日期：</strong>${ev.date}</p>
+                      <p style="margin: 5px 0;"><strong>⏰ 時間：</strong>${ev.time}${ev.endTime ? ' - ' + ev.endTime : ''}</p>
+                      <p style="margin: 0;"><strong>📍 地點：</strong>${ev.location}</p>
+                    </div>
+                  </div>
+                </div>`
+              });
+              sent++;
+            } catch (e) {
+              console.error(`發送給 ${reg.email} 失敗:`, e.message);
+            }
+          }
+          
+          messages.push(createFlexCard('✅ 通知已發送', `${typeLabels[notifyType]}\n\n📧 成功發送：${sent}/${confirmed.length} 人\n📅 ${ev.title}`, '#10b981'));
+        }
+      } else if (!resend) {
+        messages.push(createFlexCard('❌ Email 未設定', '請在 Render 設定 RESEND_API_KEY', '#ef4444'));
+      } else {
+        messages.push({ type: 'text', text: '找不到此活動' });
+      }
+    }
+    // === 證書功能 ===
+    else if (text === '證書' || text === '發送證書' || text === '結業證書') {
+      const events = await getEvents();
+      const regs = await getRegistrations();
+      const endedEvents = events.filter(e => e.status === 'ended');
+      if (endedEvents.length === 0) {
+        messages.push(createFlexCard('🏆 發送證書', '沒有已結束的活動\n\n請先在網頁版將活動狀態改為「已結束」'));
+      } else {
+        const bubbles = endedEvents.slice(0, 10).map(ev => {
+          const confirmed = regs.filter(r => r.eventId === ev.id && r.status === 'confirmed');
+          return {
+            type: 'bubble',
+            header: { type: 'box', layout: 'vertical', contents: [
+              { type: 'text', text: '🏆 發送證書', weight: 'bold', color: '#ffffff', size: 'sm' }
+            ], backgroundColor: '#8b5cf6', paddingAll: '12px' },
+            body: { type: 'box', layout: 'vertical', contents: [
+              { type: 'text', text: ev.title, weight: 'bold', size: 'md', wrap: true },
+              { type: 'text', text: `📅 ${ev.date}`, size: 'xs', color: '#888888', margin: 'md' },
+              { type: 'text', text: `👥 已確認學員：${confirmed.length} 人`, size: 'xs', color: '#8b5cf6', margin: 'sm' }
+            ], paddingAll: '15px' },
+            footer: { type: 'box', layout: 'vertical', contents: [
+              { type: 'button', action: { type: 'message', label: '📧 發送全部證書', text: `發送證書 ${ev.id}` }, style: 'primary', height: 'sm' }
+            ], paddingAll: '10px' }
+          };
+        });
+        messages.push({ type: 'flex', altText: '選擇活動發送證書', contents: { type: 'carousel', contents: bubbles } });
+      }
+    }
+    else if (text.startsWith('發送證書 ')) {
+      const eventId = text.split(' ')[1];
+      const ev = await getEvent(eventId);
+      
+      if (ev && resend) {
+        const regs = await getRegistrations();
+        const confirmed = regs.filter(r => r.eventId === eventId && r.status === 'confirmed');
+        
+        if (confirmed.length === 0) {
+          messages.push(createFlexCard('🏆 發送證書', '此活動沒有已確認的學員', '#ef4444'));
+        } else {
+          const senderEmail = process.env.SENDER_EMAIL || 'onboarding@resend.dev';
+          const formatDate = (d) => new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+          let sent = 0;
+          
+          for (const reg of confirmed) {
+            try {
+              await resend.emails.send({
+                from: senderEmail,
+                to: reg.email,
+                subject: `🏆 Certificate - ${ev.title}`,
+                html: `<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                  <div style="background: linear-gradient(135deg, #8b5cf6, #a855f7); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
+                    <h1 style="margin: 0;">🏆 Certificate of Completion</h1>
+                  </div>
+                  <div style="background: #f8fafc; padding: 30px; border-radius: 0 0 10px 10px; text-align: center;">
+                    <p style="color: #64748b;">This is to certify that</p>
+                    <h2 style="color: #1e293b; font-size: 28px; margin: 15px 0;">${reg.name}</h2>
+                    <p style="color: #64748b;">has successfully completed the workshop</p>
+                    <h3 style="color: #8b5cf6; margin: 15px 0;">${ev.title}</h3>
+                    <p style="color: #94a3b8;">Date: ${formatDate(ev.date)}</p>
+                    <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 25px 0;">
+                    <p style="color: #94a3b8; font-size: 12px;">Congratulations on completing the workshop!</p>
+                  </div>
+                </div>`
+              });
+              sent++;
+            } catch (e) {
+              console.error(`發送證書給 ${reg.email} 失敗:`, e.message);
+            }
+          }
+          
+          // 更新活動證書數量
+          await updateEvent(eventId, { certificates: sent });
+          
+          messages.push(createFlexCard('✅ 證書已發送', `📧 成功發送：${sent}/${confirmed.length} 人\n📅 ${ev.title}`, '#8b5cf6'));
+        }
+      } else if (!resend) {
+        messages.push(createFlexCard('❌ Email 未設定', '請在 Render 設定 RESEND_API_KEY', '#ef4444'));
+      } else {
+        messages.push({ type: 'text', text: '找不到此活動' });
+      }
+    }
+    // === 作品牆功能 ===
+    else if (text === '作品牆' || text === '作品' || text === '學員作品') {
+      let works = [];
+      if (useFirebase) {
+        const snapshot = await db.collection('showcase').orderBy('createdAt', 'desc').limit(10).get();
+        works = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      } else {
+        works = (memoryData.showcase || []).slice(0, 10);
+      }
+      
+      if (works.length === 0) {
+        const baseUrl = process.env.WEB_URL || 'https://workshop-bot-ut8f.onrender.com';
+        messages.push({
+          type: 'flex', altText: '學員作品牆',
+          contents: {
+            type: 'bubble',
+            header: { type: 'box', layout: 'vertical', contents: [
+              { type: 'text', text: '🎪 學員作品牆', weight: 'bold', color: '#ffffff' }
+            ], backgroundColor: '#ec4899', paddingAll: '15px' },
+            body: { type: 'box', layout: 'vertical', contents: [
+              { type: 'text', text: '還沒有學員作品', color: '#666666', align: 'center' },
+              { type: 'text', text: '請到網頁版新增作品', size: 'sm', color: '#888888', align: 'center', margin: 'md' }
+            ], paddingAll: '20px' },
+            footer: { type: 'box', layout: 'vertical', contents: [
+              { type: 'button', action: { type: 'uri', label: '🌐 前往新增作品', uri: baseUrl }, style: 'primary', height: 'sm' }
+            ], paddingAll: '10px' }
+          }
+        });
+      } else {
+        const bubbles = works.map(work => {
+          const contents = [
+            { type: 'text', text: work.title, weight: 'bold', size: 'md', wrap: true },
+            { type: 'text', text: `👤 ${work.studentName}`, size: 'sm', color: '#ec4899', margin: 'md' }
+          ];
+          if (work.description) {
+            contents.push({ type: 'text', text: work.description.slice(0, 60) + (work.description.length > 60 ? '...' : ''), size: 'xs', color: '#666666', margin: 'sm', wrap: true });
+          }
+          
+          const bubble = {
+            type: 'bubble',
+            header: { type: 'box', layout: 'vertical', contents: [
+              { type: 'text', text: '🎪 學員作品', weight: 'bold', color: '#ffffff', size: 'sm' }
+            ], backgroundColor: '#ec4899', paddingAll: '12px' },
+            body: { type: 'box', layout: 'vertical', contents, paddingAll: '15px' }
+          };
+          
+          if (work.imageUrl) {
+            bubble.hero = { type: 'image', url: work.imageUrl, size: 'full', aspectRatio: '16:9', aspectMode: 'cover' };
+          }
+          
+          if (work.link) {
+            bubble.footer = { type: 'box', layout: 'vertical', contents: [
+              { type: 'button', action: { type: 'uri', label: '🔗 查看作品', uri: work.link }, style: 'primary', height: 'sm' }
+            ], paddingAll: '10px' };
+          }
+          
+          return bubble;
+        });
+        
+        messages.push({ type: 'flex', altText: '學員作品牆', contents: { type: 'carousel', contents: bubbles } });
+      }
     }
     else if (text === '網頁' || text === '網頁版' || text === '後台' || text === '管理') {
       const baseUrl = process.env.WEB_URL || 'https://workshop-bot-ut8f.onrender.com';
