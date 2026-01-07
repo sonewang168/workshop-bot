@@ -396,6 +396,25 @@ function EventsPage({ events, onRefresh, showToast }) {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ title: '', description: '', date: '', time: '', endTime: '', location: '', maxParticipants: 30, status: 'draft' });
+  const [viewMode, setViewMode] = useState('active'); // active, archived
+  const [showArchiveDetail, setShowArchiveDetail] = useState(null);
+
+  // 計算6個月前的日期
+  const sixMonthsAgo = new Date();
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
+  // 分類活動
+  const activeEvents = events.filter(ev => {
+    if (ev.status === 'archived') return false;
+    const evDate = new Date(ev.date);
+    return evDate >= sixMonthsAgo || ev.status === 'active' || ev.status === 'draft';
+  });
+
+  const archivedEvents = events.filter(ev => {
+    if (ev.status === 'archived') return true;
+    const evDate = new Date(ev.date);
+    return evDate < sixMonthsAgo && ev.status === 'ended';
+  });
 
   const openNew = () => {
     setEditing(null);
@@ -422,7 +441,6 @@ function EventsPage({ events, onRefresh, showToast }) {
     if (!form.title || !form.date) { showToast('請填寫活動名稱和日期', 'error'); return; }
     
     if (editing) {
-      // 更新現有活動
       await fetch(`/api/events/${editing.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -430,7 +448,6 @@ function EventsPage({ events, onRefresh, showToast }) {
       });
       showToast('活動已更新！', 'success');
     } else {
-      // 新增活動
       await API.addEvent(form);
       showToast('活動已新增！', 'success');
     }
@@ -441,9 +458,24 @@ function EventsPage({ events, onRefresh, showToast }) {
     onRefresh();
   };
 
-  const updateStatus = async (id, status) => {
-    await API.updateEvent(id, { status });
-    showToast('狀態已更新', 'success');
+  const archiveEvent = async (ev) => {
+    if (!confirm(`確定要封存「${ev.title}」？`)) return;
+    await fetch(`/api/events/${ev.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'archived' })
+    });
+    showToast('活動已封存', 'success');
+    onRefresh();
+  };
+
+  const unarchiveEvent = async (ev) => {
+    await fetch(`/api/events/${ev.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'ended' })
+    });
+    showToast('活動已取消封存', 'success');
     onRefresh();
   };
 
@@ -452,6 +484,7 @@ function EventsPage({ events, onRefresh, showToast }) {
     try {
       await fetch(`/api/events/${ev.id}`, { method: 'DELETE' });
       showToast('活動已刪除', 'success');
+      setShowArchiveDetail(null);
       onRefresh();
     } catch (e) {
       showToast('刪除失敗', 'error');
@@ -462,41 +495,107 @@ function EventsPage({ events, onRefresh, showToast }) {
     <div>
       <div className="header">
         <h1>📅 活動管理</h1>
-        <button className="btn btn-primary" onClick={openNew}>＋ 新增活動</button>
-      </div>
-      <div className="card">
-        {events.length === 0 ? (
-          <div className="empty-state">
-            <div className="icon">📅</div>
-            <p>還沒有任何活動</p>
-            <button className="btn btn-primary" style={{ marginTop: '20px' }} onClick={openNew}>建立第一個活動</button>
-          </div>
-        ) : (
-          <table>
-            <thead><tr><th>活動名稱</th><th>日期時間</th><th>地點</th><th>報名</th><th>狀態</th><th>操作</th></tr></thead>
-            <tbody>
-              {events.map(ev => (
-                <tr key={ev.id}>
-                  <td><strong style={{ cursor: 'pointer', color: '#6366f1' }} onClick={() => openEdit(ev)}>{ev.title}</strong></td>
-                  <td>{ev.date} {ev.time}{ev.endTime ? `-${ev.endTime}` : ''}</td>
-                  <td>{ev.location}</td>
-                  <td>{ev.registrations || 0}/{ev.maxParticipants}</td>
-                  <td>
-                    <span className={`badge ${ev.status === 'active' ? 'badge-green' : ev.status === 'draft' ? 'badge-gray' : 'badge-red'}`}>
-                      {ev.status === 'active' ? '進行中' : ev.status === 'draft' ? '草稿' : '已結束'}
-                    </span>
-                  </td>
-                  <td>
-                    <button className="btn btn-secondary btn-sm" onClick={() => openEdit(ev)}>✏️ 編輯</button>
-                    {ev.status === 'active' && <button className="btn btn-secondary btn-sm" style={{ marginLeft: '8px' }} onClick={() => { navigator.clipboard.writeText(`${window.location.origin}?register=${ev.id}`); showToast('報名連結已複製！', 'success'); }}>🔗 連結</button>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button className="btn btn-primary" onClick={openNew}>＋ 新增活動</button>
+        </div>
       </div>
 
+      {/* 切換標籤 */}
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+        <button 
+          className={`style-btn ${viewMode === 'active' ? 'active' : ''}`} 
+          onClick={() => setViewMode('active')}
+          style={{ flex: 1, padding: '15px' }}
+        >
+          📅 進行中 / 近期活動
+          <span className="badge badge-green" style={{ marginLeft: '10px' }}>{activeEvents.length}</span>
+        </button>
+        <button 
+          className={`style-btn ${viewMode === 'archived' ? 'active' : ''}`} 
+          onClick={() => setViewMode('archived')}
+          style={{ flex: 1, padding: '15px' }}
+        >
+          📦 封存區（6個月以上）
+          <span className="badge badge-gray" style={{ marginLeft: '10px' }}>{archivedEvents.length}</span>
+        </button>
+      </div>
+
+      {/* 進行中/近期活動 */}
+      {viewMode === 'active' && (
+        <div className="card">
+          {activeEvents.length === 0 ? (
+            <div className="empty-state">
+              <div className="icon">📅</div>
+              <p>還沒有任何活動</p>
+              <button className="btn btn-primary" style={{ marginTop: '20px' }} onClick={openNew}>建立第一個活動</button>
+            </div>
+          ) : (
+            <table>
+              <thead><tr><th>活動名稱</th><th>日期時間</th><th>地點</th><th>報名</th><th>狀態</th><th>操作</th></tr></thead>
+              <tbody>
+                {activeEvents.map(ev => (
+                  <tr key={ev.id}>
+                    <td><strong style={{ cursor: 'pointer', color: '#6366f1' }} onClick={() => openEdit(ev)}>{ev.title}</strong></td>
+                    <td>{ev.date} {ev.time}{ev.endTime ? `-${ev.endTime}` : ''}</td>
+                    <td>{ev.location}</td>
+                    <td>{ev.registrations || 0}/{ev.maxParticipants}</td>
+                    <td>
+                      <span className={`badge ${ev.status === 'active' ? 'badge-green' : ev.status === 'draft' ? 'badge-gray' : 'badge-red'}`}>
+                        {ev.status === 'active' ? '進行中' : ev.status === 'draft' ? '草稿' : '已結束'}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <button className="btn btn-secondary btn-sm" onClick={() => openEdit(ev)}>✏️ 編輯</button>
+                        {ev.status === 'active' && <button className="btn btn-secondary btn-sm" onClick={() => { navigator.clipboard.writeText(`${window.location.origin}?register=${ev.id}`); showToast('報名連結已複製！', 'success'); }}>🔗 連結</button>}
+                        {ev.status === 'ended' && <button className="btn btn-secondary btn-sm" onClick={() => archiveEvent(ev)}>📦 封存</button>}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* 封存區 */}
+      {viewMode === 'archived' && (
+        <div className="card">
+          <div style={{ marginBottom: '15px', color: '#64748b', fontSize: '14px' }}>
+            📌 已結束超過 6 個月的活動會自動歸類到此區域，您也可以手動封存活動
+          </div>
+          {archivedEvents.length === 0 ? (
+            <div className="empty-state">
+              <div className="icon">📦</div>
+              <p>沒有封存的活動</p>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '15px' }}>
+              {archivedEvents.map(ev => (
+                <div key={ev.id} style={{ background: '#0f0f1a', borderRadius: '12px', padding: '16px', border: '1px solid #2a2a4a' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+                    <h4 style={{ margin: 0, color: '#a5b4fc' }}>{ev.title}</h4>
+                    <span className="badge badge-gray">封存</span>
+                  </div>
+                  <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '12px' }}>
+                    <div>📅 {ev.date} {ev.time}{ev.endTime ? `-${ev.endTime}` : ''}</div>
+                    <div>📍 {ev.location || '未設定'}</div>
+                    <div>👥 報名：{ev.registrations || 0}/{ev.maxParticipants}</div>
+                    <div>🏆 證書：{ev.certificates || 0} 張</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setShowArchiveDetail(ev)}>👁️ 查看詳情</button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => unarchiveEvent(ev)}>↩ 取消封存</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 新增/編輯 Modal */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
@@ -540,6 +639,7 @@ function EventsPage({ events, onRefresh, showToast }) {
                   <option value="draft">草稿</option>
                   <option value="active">進行中</option>
                   <option value="ended">已結束</option>
+                  <option value="archived">封存</option>
                 </select>
               </div>
             </div>
@@ -547,6 +647,39 @@ function EventsPage({ events, onRefresh, showToast }) {
               <button className="btn btn-primary" onClick={handleSubmit}>{editing ? '💾 儲存變更' : '儲存活動'}</button>
               <button className="btn btn-secondary" onClick={() => setShowModal(false)}>取消</button>
               {editing && <button className="btn btn-danger" style={{ marginLeft: 'auto' }} onClick={() => { setShowModal(false); deleteEvent(editing); }}>🗑️ 刪除</button>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 封存活動詳情 Modal */}
+      {showArchiveDetail && (
+        <div className="modal-overlay" onClick={() => setShowArchiveDetail(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+            <h2>📦 {showArchiveDetail.title}</h2>
+            <div style={{ background: '#0f0f1a', borderRadius: '12px', padding: '20px', marginBottom: '20px' }}>
+              <table style={{ width: '100%' }}>
+                <tbody>
+                  <tr><td style={{ color: '#64748b', padding: '8px 0' }}>📅 活動日期</td><td>{showArchiveDetail.date}</td></tr>
+                  <tr><td style={{ color: '#64748b', padding: '8px 0' }}>⏰ 活動時間</td><td>{showArchiveDetail.time}{showArchiveDetail.endTime ? ` - ${showArchiveDetail.endTime}` : ''}</td></tr>
+                  <tr><td style={{ color: '#64748b', padding: '8px 0' }}>📍 活動地點</td><td>{showArchiveDetail.location || '未設定'}</td></tr>
+                  <tr><td style={{ color: '#64748b', padding: '8px 0' }}>👥 報名人數</td><td>{showArchiveDetail.registrations || 0} / {showArchiveDetail.maxParticipants}</td></tr>
+                  <tr><td style={{ color: '#64748b', padding: '8px 0' }}>📨 通知次數</td><td>{showArchiveDetail.notifications || 0} 次</td></tr>
+                  <tr><td style={{ color: '#64748b', padding: '8px 0' }}>🏆 證書發送</td><td>{showArchiveDetail.certificates || 0} 張</td></tr>
+                </tbody>
+              </table>
+              {showArchiveDetail.description && (
+                <div style={{ marginTop: '15px', paddingTop: '15px', borderTop: '1px solid #2a2a4a' }}>
+                  <div style={{ color: '#64748b', marginBottom: '8px' }}>📝 活動說明</div>
+                  <div style={{ color: '#94a3b8' }}>{showArchiveDetail.description}</div>
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <button className="btn btn-secondary" onClick={() => unarchiveEvent(showArchiveDetail)}>↩ 取消封存</button>
+              <button className="btn btn-secondary" onClick={() => { setShowArchiveDetail(null); openEdit(showArchiveDetail); }}>✏️ 編輯</button>
+              <button className="btn btn-danger" style={{ marginLeft: 'auto' }} onClick={() => deleteEvent(showArchiveDetail)}>🗑️ 永久刪除</button>
+              <button className="btn btn-secondary" onClick={() => setShowArchiveDetail(null)}>關閉</button>
             </div>
           </div>
         </div>
