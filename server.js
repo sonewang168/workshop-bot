@@ -1981,15 +1981,15 @@ app.post('/api/send-notification', async (req, res) => {
     
     let sent = 0;
     let failed = [];
-    console.log(`[通知發送] 開始發送給 ${confirmedRegs.length} 人`);
+    console.log(`[通知發送] 開始發送給 ${confirmedRegs.length} 位報名者`);
     
     for (let i = 0; i < confirmedRegs.length; i++) {
       const reg = confirmedRegs[i];
-      console.log(`[通知發送] 嘗試發送給: ${reg.email} (${i+1}/${confirmedRegs.length})`);
+      console.log(`[通知發送] 嘗試發送給: ${reg.name} <${reg.email}> (${i+1}/${confirmedRegs.length})`);
       
-      // 每封信之間延遲 600ms 避免速率限制
+      // 每封信之間延遲 1500ms 避免速率限制（Resend 限制每秒 2 封）
       if (i > 0) {
-        await new Promise(resolve => setTimeout(resolve, 600));
+        await new Promise(resolve => setTimeout(resolve, 1500));
       }
       
       try {
@@ -2334,7 +2334,14 @@ async function executeSchedule(schedule) {
   const senderEmail = process.env.SENDER_EMAIL || 'onboarding@resend.dev';
   let sent = 0;
   
-  for (const reg of confirmed) {
+  for (let i = 0; i < confirmed.length; i++) {
+    const reg = confirmed[i];
+    
+    // 每封信之間延遲 1500ms 避免速率限制
+    if (i > 0) {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+    }
+    
     try {
       await resend.emails.send({
         from: senderEmail,
@@ -2358,8 +2365,9 @@ async function executeSchedule(schedule) {
         </div>`
       });
       sent++;
+      console.log(`[排程發送] ✓ ${reg.email}`);
     } catch (e) {
-      console.error(`發送給 ${reg.email} 失敗:`, e.message);
+      console.error(`[排程發送] ✗ ${reg.email}:`, e.message);
     }
   }
   
