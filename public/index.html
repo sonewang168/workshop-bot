@@ -1398,16 +1398,23 @@ function NotificationsPage({ events, registrations, showToast }) {
   }, []);
 
   const sendReminder = async () => {
+    console.log('[DEBUG] sendReminder called');
+    console.log('[DEBUG] selectedEvent:', selectedEvent);
+    console.log('[DEBUG] customMessage:', customMessage?.substring(0, 50));
+    console.log('[DEBUG] eventRegs:', eventRegs.length);
+    
     if (!selectedEvent) { showToast('請選擇活動', 'error'); return; }
     if (!customMessage.trim()) { showToast('請輸入通知內容', 'error'); return; }
     setSending(true);
     try {
+      console.log('[DEBUG] Calling API...');
       const res = await fetch('/api/send-notification', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ eventId: selectedEvent, type: notifyType, customMessage })
       });
       const data = await res.json();
+      console.log('[DEBUG] API response:', data);
       if (data.success) {
         if (data.failed && data.failed.length > 0) {
           showToast(`已發送 ${data.sent}/${data.total} 封，${data.failed.length} 封失敗`, 'warning');
@@ -1419,6 +1426,7 @@ function NotificationsPage({ events, registrations, showToast }) {
         showToast(data.error || '發送失敗', 'error');
       }
     } catch (e) {
+      console.error('[DEBUG] Error:', e);
       showToast('發送失敗', 'error');
     }
     setSending(false);
