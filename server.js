@@ -2494,7 +2494,18 @@ async function generateCertificateBackground(eventTitle, eventDescription) {
   
   const styleInfo = getCertificateStyle(eventTitle, eventDescription);
   
-  const prompt = `A beautiful certificate background template, ${styleInfo.style} style, ${styleInfo.colors}, decorated with ${styleInfo.elements}. Elegant ornate border frame, large empty white space in center for text, professional high-quality design, landscape orientation, golden accents, subtle patterns, NO text NO letters NO words NO numbers, only decorative elements and borders`;
+  // 根據風格生成不同的精美背景
+  const stylePrompts = {
+    '科技風': 'futuristic digital certificate background, holographic effects, circuit board patterns, glowing neon blue and purple gradients, geometric shapes, tech grid lines, cyber aesthetic, metallic silver accents, dark navy background with luminous elements',
+    '活潑風': 'cheerful colorful certificate background, rainbow watercolor splashes, cute confetti, balloon decorations, playful stars and hearts, pastel pink yellow blue, joyful celebration theme, soft clouds, whimsical design',
+    '正式商務': 'luxurious executive certificate background, royal deep navy and gold, elegant damask patterns, ornate golden filigree borders, prestigious seal emblem area, marble texture, classical columns, sophisticated corporate design',
+    '藝術風': 'artistic watercolor certificate background, beautiful paint splashes, creative brush strokes, palette of warm colors, artistic ink drops, canvas texture, impressionist style borders, gallery worthy design',
+    '表演藝術': 'theatrical performance certificate background, red velvet curtains, golden spotlight effects, musical notes floating, stage lights, dramatic red and gold, entertainment awards style, glamorous design',
+    '典雅專業': 'elegant premium certificate background, ornate Victorian flourishes, golden laurel wreaths in corners, classic ivory parchment texture, refined scrollwork borders, prestigious medallion space, timeless sophisticated design'
+  };
+  
+  const basePrompt = stylePrompts[styleInfo.style] || stylePrompts['典雅專業'];
+  const prompt = `${basePrompt}, certificate template, landscape orientation, large clean white or cream center area for text overlay, highly detailed decorative frame, professional print quality, 8k resolution, masterpiece quality, absolutely NO text NO letters NO words NO numbers anywhere`;
 
   try {
     console.log(`[AI 證書] 生成背景: ${eventTitle}`);
