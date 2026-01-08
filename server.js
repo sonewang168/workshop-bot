@@ -1698,7 +1698,7 @@ app.post('/api/send-notification', async (req, res) => {
     for (const reg of confirmedRegs) {
       console.log(`[通知發送] 嘗試發送給: ${reg.email}`);
       try {
-        await resend.emails.send({
+        const result = await resend.emails.send({
           from: senderEmail,
           to: reg.email,
           subject,
@@ -1720,8 +1720,17 @@ app.post('/api/send-notification', async (req, res) => {
             </div>
           `
         });
-        sent++;
-        console.log(`[通知發送] ✓ 成功: ${reg.email}`);
+        console.log(`[通知發送] Resend 回傳:`, JSON.stringify(result));
+        if (result.data?.id) {
+          sent++;
+          console.log(`[通知發送] ✓ 成功: ${reg.email}, ID: ${result.data.id}`);
+        } else if (result.error) {
+          console.error(`[通知發送] ✗ Resend 錯誤: ${reg.email}`, result.error);
+          failed.push({ email: reg.email, error: result.error.message || JSON.stringify(result.error) });
+        } else {
+          sent++;
+          console.log(`[通知發送] ✓ 成功: ${reg.email}`);
+        }
       } catch (e) {
         console.error(`[通知發送] ✗ 失敗: ${reg.email}`, e.message);
         failed.push({ email: reg.email, error: e.message });
