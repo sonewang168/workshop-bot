@@ -1692,7 +1692,11 @@ app.post('/api/send-notification', async (req, res) => {
     const senderEmail = process.env.SENDER_EMAIL || 'onboarding@resend.dev';
     
     let sent = 0;
+    let failed = [];
+    console.log(`[通知發送] 開始發送給 ${confirmedRegs.length} 人`);
+    
     for (const reg of confirmedRegs) {
+      console.log(`[通知發送] 嘗試發送給: ${reg.email}`);
       try {
         await resend.emails.send({
           from: senderEmail,
@@ -1717,12 +1721,15 @@ app.post('/api/send-notification', async (req, res) => {
           `
         });
         sent++;
+        console.log(`[通知發送] ✓ 成功: ${reg.email}`);
       } catch (e) {
-        console.error(`發送給 ${reg.email} 失敗:`, e.message);
+        console.error(`[通知發送] ✗ 失敗: ${reg.email}`, e.message);
+        failed.push({ email: reg.email, error: e.message });
       }
     }
     
-    res.json({ success: true, sent, total: confirmedRegs.length });
+    console.log(`[通知發送] 完成: 成功 ${sent}/${confirmedRegs.length}, 失敗 ${failed.length}`);
+    res.json({ success: true, sent, total: confirmedRegs.length, failed });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

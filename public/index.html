@@ -1409,7 +1409,12 @@ function NotificationsPage({ events, registrations, showToast }) {
       });
       const data = await res.json();
       if (data.success) {
-        showToast(`已發送 ${data.sent} 封通知！`, 'success');
+        if (data.failed && data.failed.length > 0) {
+          showToast(`已發送 ${data.sent}/${data.total} 封，${data.failed.length} 封失敗`, 'warning');
+          console.log('發送失敗的 Email:', data.failed);
+        } else {
+          showToast(`已發送 ${data.sent} 封通知！`, 'success');
+        }
       } else {
         showToast(data.error || '發送失敗', 'error');
       }
