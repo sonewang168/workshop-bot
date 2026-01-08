@@ -218,18 +218,21 @@ initFirebase();
 // ==================== 記憶體資料 ====================
 let memoryData = {
   events: [
-    { id: '1', title: 'AI 繪圖入門工作坊', description: '學習 Stable Diffusion', date: '2026-01-15', time: '14:00', endTime: '17:00', location: '線上 Google Meet', maxParticipants: 30, status: 'active', registrations: 24, notifications: 2, certificates: 0, instructorName: '王老師', createdAt: new Date().toISOString() },
-    { id: '2', title: 'Vibe Coding 實戰營', description: '用自然語言寫程式', date: '2026-01-22', time: '09:00', endTime: '12:00', location: '台北市信義區', maxParticipants: 20, status: 'draft', registrations: 0, notifications: 0, certificates: 0, instructorName: '王老師', createdAt: new Date().toISOString() }
+    { id: '1', title: 'AI 繪圖入門工作坊', description: '學習 Stable Diffusion', date: '2026-01-15', time: '14:00', endTime: '17:00', location: '線上 Google Meet', maxParticipants: 30, status: 'active', registrations: 24, notifications: 2, certificates: 0, instructorName: '王老師', createdAt: new Date().toISOString(), price: 0 },
+    { id: '2', title: 'Vibe Coding 實戰營', description: '用自然語言寫程式', date: '2026-01-22', time: '09:00', endTime: '12:00', location: '台北市信義區', maxParticipants: 20, status: 'draft', registrations: 0, notifications: 0, certificates: 0, instructorName: '王老師', createdAt: new Date().toISOString(), price: 500 }
   ],
   registrations: [
-    { id: '1', eventId: '1', name: '王小明', email: 'xiaoming@example.com', phone: '0912345678', createdAt: '2026-01-02', status: 'confirmed' },
-    { id: '2', eventId: '1', name: '李小華', email: 'xiaohua@example.com', phone: '0923456789', createdAt: '2026-01-03', status: 'pending' }
+    { id: '1', eventId: '1', name: '王小明', email: 'xiaoming@example.com', phone: '0912345678', createdAt: '2026-01-02', status: 'confirmed', checkedIn: false, checkedInAt: null },
+    { id: '2', eventId: '1', name: '李小華', email: 'xiaohua@example.com', phone: '0923456789', createdAt: '2026-01-03', status: 'pending', checkedIn: false, checkedInAt: null }
   ],
   posters: [],
   tempPosters: {},
   showcase: [],
   schedules: [],
   lineBindings: [],  // 學員 LINE 綁定資料 { lineUserId, email, name, bindAt }
+  waitlist: [],      // 候補名單 { id, eventId, name, email, phone, createdAt, notified }
+  checkins: [],      // 簽到記錄 { id, eventId, regId, checkedInAt }
+  feedback: [],      // 問卷回饋 { id, eventId, regId, rating, comment, createdAt }
   settings: {}
 };
 
@@ -2453,6 +2456,407 @@ async function checkSchedules() {
     console.error('檢查排程錯誤:', e.message);
   }
 }
+
+// ==================== 1. 簽到系統 API ====================
+// 產生簽到 QR Code 連結
+app.get('/api/checkin/qr/:eventId', async (req, res) => {
+  const { eventId } = req.params;
+  const baseUrl = process.env.WEB_URL || `http://localhost:${process.env.PORT || 3000}`;
+  const checkinUrl = `${baseUrl}?checkin=${eventId}`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(checkinUrl)}`;
+  res.json({ checkinUrl, qrUrl, eventId });
+});
+
+// 執行簽到
+app.post('/api/checkin', async (req, res) => {
+  try {
+    const { eventId, email } = req.body;
+    const regs = await getRegistrations();
+    const reg = regs.find(r => r.eventId === eventId && r.email.toLowerCase() === email.toLowerCase() && r.status === 'confirmed');
+    
+    if (!reg) {
+      return res.json({ success: false, error: '找不到您的報名資料，請確認 Email 是否正確' });
+    }
+    
+    if (reg.checkedIn) {
+      return res.json({ success: false, error: '您已經簽到過了', checkedInAt: reg.checkedInAt });
+    }
+    
+    // 更新簽到狀態
+    const checkedInAt = new Date().toISOString();
+    await updateRegistration(reg.id, { checkedIn: true, checkedInAt });
+    
+    res.json({ success: true, name: reg.name, checkedInAt });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// 取得簽到統計
+app.get('/api/checkin/stats/:eventId', async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const regs = await getRegistrations();
+    const eventRegs = regs.filter(r => r.eventId === eventId && r.status === 'confirmed');
+    const checkedIn = eventRegs.filter(r => r.checkedIn);
+    
+    res.json({
+      total: eventRegs.length,
+      checkedIn: checkedIn.length,
+      notCheckedIn: eventRegs.length - checkedIn.length,
+      checkedInList: checkedIn.map(r => ({ name: r.name, email: r.email, checkedInAt: r.checkedInAt })),
+      notCheckedInList: eventRegs.filter(r => !r.checkedIn).map(r => ({ name: r.name, email: r.email }))
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ==================== 2. 問卷回饋系統 API ====================
+// 取得問卷
+app.get('/api/feedback/:eventId', async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    if (useFirebase) {
+      const snapshot = await db.collection('feedback').where('eventId', '==', eventId).get();
+      res.json(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    } else {
+      res.json((memoryData.feedback || []).filter(f => f.eventId === eventId));
+    }
+  } catch (e) {
+    res.json([]);
+  }
+});
+
+// 提交問卷
+app.post('/api/feedback', async (req, res) => {
+  try {
+    const { eventId, email, rating, comment, answers } = req.body;
+    
+    // 檢查是否已填過
+    let existing = null;
+    if (useFirebase) {
+      const snapshot = await db.collection('feedback').where('eventId', '==', eventId).where('email', '==', email).get();
+      existing = !snapshot.empty;
+    } else {
+      existing = (memoryData.feedback || []).find(f => f.eventId === eventId && f.email === email);
+    }
+    
+    if (existing) {
+      return res.json({ success: false, error: '您已經填寫過問卷了' });
+    }
+    
+    const feedback = {
+      eventId,
+      email,
+      rating: parseInt(rating) || 5,
+      comment: comment || '',
+      answers: answers || {},
+      createdAt: new Date().toISOString()
+    };
+    
+    if (useFirebase) {
+      const docRef = await db.collection('feedback').add(feedback);
+      res.json({ success: true, id: docRef.id });
+    } else {
+      feedback.id = Date.now().toString();
+      if (!memoryData.feedback) memoryData.feedback = [];
+      memoryData.feedback.push(feedback);
+      res.json({ success: true, id: feedback.id });
+    }
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// 問卷統計
+app.get('/api/feedback/stats/:eventId', async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    let feedbacks = [];
+    
+    if (useFirebase) {
+      const snapshot = await db.collection('feedback').where('eventId', '==', eventId).get();
+      feedbacks = snapshot.docs.map(doc => doc.data());
+    } else {
+      feedbacks = (memoryData.feedback || []).filter(f => f.eventId === eventId);
+    }
+    
+    if (feedbacks.length === 0) {
+      return res.json({ total: 0, avgRating: 0, ratings: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } });
+    }
+    
+    const ratings = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    let totalRating = 0;
+    
+    feedbacks.forEach(f => {
+      ratings[f.rating] = (ratings[f.rating] || 0) + 1;
+      totalRating += f.rating;
+    });
+    
+    res.json({
+      total: feedbacks.length,
+      avgRating: (totalRating / feedbacks.length).toFixed(1),
+      ratings,
+      comments: feedbacks.filter(f => f.comment).map(f => ({ rating: f.rating, comment: f.comment, createdAt: f.createdAt }))
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ==================== 3. 候補名單系統 API ====================
+// 加入候補
+app.post('/api/waitlist', async (req, res) => {
+  try {
+    const { eventId, name, email, phone } = req.body;
+    
+    // 檢查是否已在候補名單
+    let existing = null;
+    if (useFirebase) {
+      const snapshot = await db.collection('waitlist').where('eventId', '==', eventId).where('email', '==', email).get();
+      existing = !snapshot.empty;
+    } else {
+      existing = (memoryData.waitlist || []).find(w => w.eventId === eventId && w.email === email);
+    }
+    
+    if (existing) {
+      return res.json({ success: false, error: '您已經在候補名單中' });
+    }
+    
+    const waitlistEntry = {
+      eventId,
+      name,
+      email,
+      phone: phone || '',
+      createdAt: new Date().toISOString(),
+      notified: false
+    };
+    
+    if (useFirebase) {
+      const docRef = await db.collection('waitlist').add(waitlistEntry);
+      
+      // 計算候補順位
+      const snapshot = await db.collection('waitlist').where('eventId', '==', eventId).get();
+      const position = snapshot.size;
+      
+      res.json({ success: true, id: docRef.id, position });
+    } else {
+      waitlistEntry.id = Date.now().toString();
+      if (!memoryData.waitlist) memoryData.waitlist = [];
+      memoryData.waitlist.push(waitlistEntry);
+      
+      const position = memoryData.waitlist.filter(w => w.eventId === eventId).length;
+      res.json({ success: true, id: waitlistEntry.id, position });
+    }
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// 取得候補名單
+app.get('/api/waitlist/:eventId', async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    if (useFirebase) {
+      const snapshot = await db.collection('waitlist').where('eventId', '==', eventId).orderBy('createdAt', 'asc').get();
+      res.json(snapshot.docs.map((doc, idx) => ({ id: doc.id, ...doc.data(), position: idx + 1 })));
+    } else {
+      const list = (memoryData.waitlist || []).filter(w => w.eventId === eventId).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+      res.json(list.map((w, idx) => ({ ...w, position: idx + 1 })));
+    }
+  } catch (e) {
+    res.json([]);
+  }
+});
+
+// 通知候補者（當有人取消時）
+app.post('/api/waitlist/notify/:eventId', async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const events = await getEvents();
+    const event = events.find(e => e.id === eventId);
+    
+    if (!event) return res.json({ success: false, error: '找不到活動' });
+    
+    // 找到第一位未通知的候補者
+    let firstWaiting = null;
+    if (useFirebase) {
+      const snapshot = await db.collection('waitlist').where('eventId', '==', eventId).where('notified', '==', false).orderBy('createdAt', 'asc').limit(1).get();
+      if (!snapshot.empty) {
+        firstWaiting = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
+      }
+    } else {
+      firstWaiting = (memoryData.waitlist || []).filter(w => w.eventId === eventId && !w.notified).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))[0];
+    }
+    
+    if (!firstWaiting) {
+      return res.json({ success: false, error: '沒有候補者' });
+    }
+    
+    // 發送通知 Email
+    if (resend) {
+      const senderEmail = process.env.SENDER_EMAIL || 'onboarding@resend.dev';
+      const baseUrl = process.env.WEB_URL || 'http://localhost:3000';
+      
+      await resend.emails.send({
+        from: senderEmail,
+        to: firstWaiting.email,
+        subject: `🎉 候補通知 - ${event.title} 有名額釋出！`,
+        html: `
+          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="background: linear-gradient(135deg, #f59e0b, #d97706); color: white; padding: 20px; border-radius: 10px 10px 0 0;">
+              <h2>🎉 好消息！有名額釋出了！</h2>
+            </div>
+            <div style="background: #f8fafc; padding: 20px; border-radius: 0 0 10px 10px;">
+              <p>親愛的 ${firstWaiting.name} 您好，</p>
+              <p>您候補的活動「<strong>${event.title}</strong>」有名額釋出，請盡快完成報名！</p>
+              <div style="background: #e0e7ff; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                <p><strong>📅 日期：</strong>${event.date}</p>
+                <p><strong>⏰ 時間：</strong>${event.time}${event.endTime ? ' - ' + event.endTime : ''}</p>
+                <p><strong>📍 地點：</strong>${event.location}</p>
+              </div>
+              <a href="${baseUrl}?register=${eventId}" style="display: inline-block; background: #6366f1; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold;">立即報名</a>
+              <p style="color: #64748b; font-size: 12px; margin-top: 20px;">此名額保留 24 小時，逾期將通知下一位候補者。</p>
+            </div>
+          </div>
+        `
+      });
+    }
+    
+    // 標記已通知
+    if (useFirebase) {
+      await db.collection('waitlist').doc(firstWaiting.id).update({ notified: true, notifiedAt: new Date().toISOString() });
+    } else {
+      const idx = memoryData.waitlist.findIndex(w => w.id === firstWaiting.id);
+      if (idx !== -1) {
+        memoryData.waitlist[idx].notified = true;
+        memoryData.waitlist[idx].notifiedAt = new Date().toISOString();
+      }
+    }
+    
+    res.json({ success: true, notified: firstWaiting.email });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ==================== 4. 複製活動 API ====================
+app.post('/api/events/:id/duplicate', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { newDate, newTitle } = req.body;
+    const originalEvent = await getEvent(id);
+    
+    if (!originalEvent) {
+      return res.json({ success: false, error: '找不到原活動' });
+    }
+    
+    const newEvent = {
+      ...originalEvent,
+      title: newTitle || `${originalEvent.title} (複製)`,
+      date: newDate || originalEvent.date,
+      status: 'draft',
+      registrations: 0,
+      notifications: 0,
+      certificates: 0,
+      createdAt: new Date().toISOString()
+    };
+    delete newEvent.id;
+    
+    const created = await addEvent(newEvent);
+    res.json({ success: true, event: created });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ==================== 5. 數據儀表板 API ====================
+app.get('/api/dashboard/stats', async (req, res) => {
+  try {
+    const events = await getEvents();
+    const regs = await getRegistrations();
+    
+    // 活動統計
+    const activeEvents = events.filter(e => e.status === 'active').length;
+    const draftEvents = events.filter(e => e.status === 'draft').length;
+    const completedEvents = events.filter(e => e.status === 'completed').length;
+    
+    // 報名統計
+    const totalRegs = regs.length;
+    const confirmedRegs = regs.filter(r => r.status === 'confirmed').length;
+    const pendingRegs = regs.filter(r => r.status === 'pending').length;
+    const cancelledRegs = regs.filter(r => r.status === 'cancelled').length;
+    
+    // 簽到統計
+    const checkedInRegs = regs.filter(r => r.checkedIn).length;
+    
+    // 最近 7 天報名趨勢
+    const last7Days = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      const count = regs.filter(r => r.createdAt && r.createdAt.startsWith(dateStr)).length;
+      last7Days.push({ date: dateStr, count });
+    }
+    
+    // 各活動報名數
+    const eventStats = events.map(e => ({
+      id: e.id,
+      title: e.title,
+      date: e.date,
+      maxParticipants: e.maxParticipants,
+      registrations: regs.filter(r => r.eventId === e.id && r.status === 'confirmed').length,
+      checkedIn: regs.filter(r => r.eventId === e.id && r.checkedIn).length
+    }));
+    
+    res.json({
+      events: { total: events.length, active: activeEvents, draft: draftEvents, completed: completedEvents },
+      registrations: { total: totalRegs, confirmed: confirmedRegs, pending: pendingRegs, cancelled: cancelledRegs, checkedIn: checkedInRegs },
+      trend: last7Days,
+      eventStats
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 問卷總覽
+app.get('/api/dashboard/feedback', async (req, res) => {
+  try {
+    let feedbacks = [];
+    if (useFirebase) {
+      const snapshot = await db.collection('feedback').orderBy('createdAt', 'desc').limit(100).get();
+      feedbacks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } else {
+      feedbacks = memoryData.feedback || [];
+    }
+    
+    const events = await getEvents();
+    const totalFeedback = feedbacks.length;
+    const avgRating = feedbacks.length > 0 
+      ? (feedbacks.reduce((sum, f) => sum + f.rating, 0) / feedbacks.length).toFixed(1) 
+      : 0;
+    
+    // 各活動回饋統計
+    const eventFeedback = events.map(e => {
+      const eFeedbacks = feedbacks.filter(f => f.eventId === e.id);
+      return {
+        id: e.id,
+        title: e.title,
+        count: eFeedbacks.length,
+        avgRating: eFeedbacks.length > 0 
+          ? (eFeedbacks.reduce((sum, f) => sum + f.rating, 0) / eFeedbacks.length).toFixed(1) 
+          : 0
+      };
+    });
+    
+    res.json({ total: totalFeedback, avgRating, eventFeedback, recentComments: feedbacks.filter(f => f.comment).slice(0, 10) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // 啟動排程檢查（每 10 分鐘）
 setInterval(checkSchedules, 10 * 60 * 1000);

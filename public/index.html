@@ -286,7 +286,41 @@ function PublicRegisterForm({ eventId, onSuccess }) {
           spotsLeft <= 0 ? (
             <div className="card" style={{ textAlign: 'center' }}>
               <div style={{ fontSize: '48px', marginBottom: '16px' }}>😢</div>
-              <p>很抱歉，此活動已額滿</p>
+              <p style={{ marginBottom: '20px' }}>很抱歉，此活動已額滿</p>
+              <div style={{ background: '#1a1a2e', borderRadius: '12px', padding: '20px', textAlign: 'left' }}>
+                <h4 style={{ marginBottom: '15px', color: '#f59e0b' }}>⏳ 加入候補名單</h4>
+                <p style={{ fontSize: '14px', color: '#888', marginBottom: '15px' }}>有人取消報名時，我們會依順序通知候補者</p>
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!form.name || !form.email) { alert('請填寫姓名和 Email'); return; }
+                  try {
+                    const res = await fetch('/api/waitlist', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ eventId, name: form.name, email: form.email, phone: form.phone })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                      alert(`已加入候補名單！您是第 ${data.position} 順位`);
+                    } else {
+                      alert(data.error || '加入失敗');
+                    }
+                  } catch (err) {
+                    alert('加入失敗，請稍後再試');
+                  }
+                }}>
+                  <div className="form-group">
+                    <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="姓名" required />
+                  </div>
+                  <div className="form-group">
+                    <input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} placeholder="Email" required />
+                  </div>
+                  <div className="form-group">
+                    <input value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="手機（選填）" />
+                  </div>
+                  <button type="submit" className="btn btn-secondary" style={{ width: '100%' }}>⏳ 加入候補</button>
+                </form>
+              </div>
             </div>
           ) : (
             <div className="card">
@@ -355,16 +389,213 @@ function PublicRegisterForm({ eventId, onSuccess }) {
   );
 }
 
+// 公開簽到表單（學員用）
+function PublicCheckinForm({ eventId }) {
+  const [event, setEvent] = useState(null);
+  const [email, setEmail] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState(null);
+
+  useEffect(() => {
+    API.getEvents().then(events => {
+      const ev = events.find(e => e.id === eventId);
+      setEvent(ev);
+      setLoading(false);
+    });
+  }, [eventId]);
+
+  const handleCheckin = async (e) => {
+    e.preventDefault();
+    if (!email) { alert('請輸入 Email'); return; }
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/checkin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId, email })
+      });
+      const data = await res.json();
+      setResult(data);
+    } catch (err) {
+      setResult({ success: false, error: '簽到失敗，請稍後再試' });
+    }
+    setSubmitting(false);
+  };
+
+  if (loading) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#0f0f1a' }}><p style={{ color: 'white' }}>載入中...</p></div>;
+  if (!event) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#0f0f1a' }}><p style={{ color: 'white' }}>找不到活動</p></div>;
+
+  if (result) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#0f0f1a', padding: '20px' }}>
+        <div className="card" style={{ maxWidth: '500px', textAlign: 'center' }}>
+          {result.success ? (
+            <>
+              <div style={{ fontSize: '80px', marginBottom: '20px' }}>✅</div>
+              <h2 style={{ marginBottom: '16px', color: '#10b981' }}>簽到成功！</h2>
+              <p style={{ color: '#94a3b8', marginBottom: '20px' }}>歡迎，{result.name}！</p>
+              <p style={{ color: '#666', fontSize: '14px' }}>簽到時間：{new Date(result.checkedInAt).toLocaleString('zh-TW')}</p>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: '80px', marginBottom: '20px' }}>❌</div>
+              <h2 style={{ marginBottom: '16px', color: '#ef4444' }}>簽到失敗</h2>
+              <p style={{ color: '#94a3b8' }}>{result.error}</p>
+              {result.checkedInAt && <p style={{ color: '#666', fontSize: '14px', marginTop: '10px' }}>您已於 {new Date(result.checkedInAt).toLocaleString('zh-TW')} 簽到</p>}
+              <button className="btn btn-secondary" onClick={() => setResult(null)} style={{ marginTop: '20px' }}>重新輸入</button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#0f0f1a', padding: '20px' }}>
+      <div style={{ maxWidth: '500px', width: '100%' }}>
+        <div className="card" style={{ marginBottom: '20px', background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none' }}>
+          <h1 style={{ fontSize: '24px', marginBottom: '16px' }}>✅ 活動簽到</h1>
+          <h2 style={{ fontSize: '20px', marginBottom: '12px' }}>{event.title}</h2>
+          <p style={{ opacity: 0.9 }}>📅 {event.date} {event.time}{event.endTime ? ' - ' + event.endTime : ''}</p>
+        </div>
+        
+        <div className="card">
+          <h3 style={{ marginBottom: '20px' }}>請輸入報名時的 Email</h3>
+          <form onSubmit={handleCheckin}>
+            <div className="form-group">
+              <label>Email *</label>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="example@mail.com" required />
+            </div>
+            <button className="btn btn-primary" type="submit" disabled={submitting} style={{ width: '100%' }}>
+              {submitting ? '處理中...' : '✅ 簽到'}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 公開問卷表單（學員用）
+function PublicFeedbackForm({ eventId }) {
+  const [event, setEvent] = useState(null);
+  const [email, setEmail] = useState('');
+  const [rating, setRating] = useState(5);
+  const [comment, setComment] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    API.getEvents().then(events => {
+      const ev = events.find(e => e.id === eventId);
+      setEvent(ev);
+      setLoading(false);
+    });
+  }, [eventId]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!email) { alert('請輸入 Email'); return; }
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId, email, rating, comment })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSubmitted(true);
+      } else {
+        setError(data.error || '提交失敗');
+      }
+    } catch (err) {
+      setError('提交失敗，請稍後再試');
+    }
+    setSubmitting(false);
+  };
+
+  if (loading) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#0f0f1a' }}><p style={{ color: 'white' }}>載入中...</p></div>;
+  if (!event) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#0f0f1a' }}><p style={{ color: 'white' }}>找不到活動</p></div>;
+
+  if (submitted) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#0f0f1a', padding: '20px' }}>
+        <div className="card" style={{ maxWidth: '500px', textAlign: 'center' }}>
+          <div style={{ fontSize: '80px', marginBottom: '20px' }}>🙏</div>
+          <h2 style={{ marginBottom: '16px', color: '#10b981' }}>感謝您的回饋！</h2>
+          <p style={{ color: '#94a3b8' }}>您的意見對我們非常重要，我們會持續改進！</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#0f0f1a', padding: '20px' }}>
+      <div style={{ maxWidth: '500px', width: '100%' }}>
+        <div className="card" style={{ marginBottom: '20px', background: 'linear-gradient(135deg, #f59e0b, #d97706)', border: 'none' }}>
+          <h1 style={{ fontSize: '24px', marginBottom: '16px' }}>📝 課後問卷</h1>
+          <h2 style={{ fontSize: '20px', marginBottom: '12px' }}>{event.title}</h2>
+          <p style={{ opacity: 0.9 }}>請花 1 分鐘填寫問卷，幫助我們改進！</p>
+        </div>
+        
+        <div className="card">
+          <form onSubmit={handleSubmit}>
+            <div className="form-group">
+              <label>您的 Email *</label>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="報名時填寫的 Email" required />
+            </div>
+            
+            <div className="form-group">
+              <label>整體滿意度 *</label>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                {[1,2,3,4,5].map(n => (
+                  <button key={n} type="button" onClick={() => setRating(n)}
+                    style={{ flex: 1, padding: '15px', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '24px',
+                      background: rating >= n ? '#f59e0b' : '#333', transition: 'all 0.2s' }}>
+                    ⭐
+                  </button>
+                ))}
+              </div>
+              <p style={{ textAlign: 'center', marginTop: '10px', color: '#888' }}>{rating} / 5 分</p>
+            </div>
+            
+            <div className="form-group">
+              <label>您的建議或回饋</label>
+              <textarea value={comment} onChange={e => setComment(e.target.value)} 
+                placeholder="請分享您對這次活動的想法、建議或任何回饋..." 
+                rows={4} style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #333', background: '#1a1a2e', color: 'white', resize: 'vertical' }} />
+            </div>
+            
+            {error && <p style={{ color: '#ef4444', marginBottom: '15px' }}>{error}</p>}
+            
+            <button className="btn btn-primary" type="submit" disabled={submitting} style={{ width: '100%' }}>
+              {submitting ? '提交中...' : '📤 提交問卷'}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // 側邊欄
 function Sidebar({ page, setPage }) {
   const items = [
     { id: 'dashboard', icon: '📊', label: '儀表板' },
     { id: 'events', icon: '📅', label: '活動管理' },
     { id: 'registrations', icon: '📋', label: '報名管理' },
+    { id: 'checkin', icon: '✅', label: '簽到系統' },
+    { id: 'waitlist', icon: '⏳', label: '候補名單' },
     { id: 'notifications', icon: '🔔', label: '通知中心' },
+    { id: 'feedback', icon: '📝', label: '問卷回饋' },
     { id: 'poster', icon: '🎨', label: 'AI 文宣' },
     { id: 'certificates', icon: '🏆', label: '證書產生' },
     { id: 'showcase', icon: '🎪', label: '學員作品牆' },
+    { id: 'analytics', icon: '📈', label: '數據分析' },
     { id: 'guide', icon: '📖', label: '操作手冊' },
     { id: 'settings', icon: '⚙️', label: '系統設定' }
   ];
@@ -501,6 +732,30 @@ function EventsPage({ events, onRefresh, showToast }) {
     onRefresh();
   };
 
+  const duplicateEvent = async (ev) => {
+    const newTitle = prompt('請輸入新活動名稱：', `${ev.title} (複製)`);
+    if (!newTitle) return;
+    const newDate = prompt('請輸入活動日期 (YYYY-MM-DD)：', ev.date);
+    if (!newDate) return;
+    
+    try {
+      const res = await fetch(`/api/events/${ev.id}/duplicate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newTitle, newDate })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('活動已複製！新活動為草稿狀態', 'success');
+        onRefresh();
+      } else {
+        showToast(data.error || '複製失敗', 'error');
+      }
+    } catch (e) {
+      showToast('複製失敗', 'error');
+    }
+  };
+
   const archiveEvent = async (ev) => {
     if (!confirm(`確定要封存「${ev.title}」？`)) return;
     await fetch(`/api/events/${ev.id}`, {
@@ -590,6 +845,7 @@ function EventsPage({ events, onRefresh, showToast }) {
                     <td>
                       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                         <button className="btn btn-secondary btn-sm" onClick={() => openEdit(ev)}>✏️ 編輯</button>
+                        <button className="btn btn-secondary btn-sm" onClick={() => duplicateEvent(ev)}>📋 複製</button>
                         {ev.status === 'active' && <button className="btn btn-secondary btn-sm" onClick={() => { navigator.clipboard.writeText(`${window.location.origin}?register=${ev.id}`); showToast('報名連結已複製！', 'success'); }}>🔗 連結</button>}
                         {ev.status === 'ended' && <button className="btn btn-secondary btn-sm" onClick={() => archiveEvent(ev)}>📦 封存</button>}
                       </div>
@@ -2342,6 +2598,415 @@ function GuidePage({ events, registrations, showToast }) {
   );
 }
 
+// ==================== 簽到系統頁面 ====================
+function CheckinPage({ events, registrations, showToast, onRefresh }) {
+  const [selectedEvent, setSelectedEvent] = useState('');
+  const [qrData, setQrData] = useState(null);
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(false);
+  
+  const activeEvents = events.filter(e => e.status === 'active');
+  
+  const loadQR = async (eventId) => {
+    if (!eventId) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/checkin/qr/${eventId}`);
+      const data = await res.json();
+      setQrData(data);
+      
+      // 載入統計
+      const statsRes = await fetch(`/api/checkin/stats/${eventId}`);
+      setStats(await statsRes.json());
+    } catch (e) {
+      showToast('載入失敗', 'error');
+    }
+    setLoading(false);
+  };
+  
+  useEffect(() => {
+    if (selectedEvent) loadQR(selectedEvent);
+  }, [selectedEvent]);
+  
+  const refreshStats = async () => {
+    if (!selectedEvent) return;
+    const res = await fetch(`/api/checkin/stats/${selectedEvent}`);
+    setStats(await res.json());
+  };
+  
+  return (
+    <div>
+      <div className="header">
+        <h1>✅ 簽到系統</h1>
+        <button className="btn btn-secondary" onClick={refreshStats} disabled={!selectedEvent}>🔄 重新整理</button>
+      </div>
+      
+      <div className="card" style={{ marginBottom: '20px' }}>
+        <h3>選擇活動</h3>
+        <select className="form-control" value={selectedEvent} onChange={e => setSelectedEvent(e.target.value)} style={{ marginTop: '10px' }}>
+          <option value="">-- 請選擇活動 --</option>
+          {activeEvents.map(ev => <option key={ev.id} value={ev.id}>{ev.title} ({ev.date})</option>)}
+        </select>
+      </div>
+      
+      {selectedEvent && qrData && (
+        <div className="stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
+          <div className="card" style={{ textAlign: 'center' }}>
+            <h3>📱 簽到 QR Code</h3>
+            <div style={{ background: 'white', padding: '20px', borderRadius: '12px', display: 'inline-block', margin: '16px 0' }}>
+              <img src={qrData.qrUrl} alt="簽到 QR Code" style={{ width: '200px', height: '200px' }} />
+            </div>
+            <p style={{ fontSize: '12px', color: '#666', wordBreak: 'break-all' }}>{qrData.checkinUrl}</p>
+            <button className="btn btn-primary" onClick={() => { navigator.clipboard.writeText(qrData.checkinUrl); showToast('已複製連結', 'success'); }}>📋 複製連結</button>
+          </div>
+          
+          {stats && (
+            <>
+              <div className="stat-card" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
+                <div className="icon">✅</div>
+                <div className="value">{stats.checkedIn}</div>
+                <div className="label">已簽到</div>
+              </div>
+              <div className="stat-card" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>
+                <div className="icon">⏳</div>
+                <div className="value">{stats.notCheckedIn}</div>
+                <div className="label">未簽到</div>
+              </div>
+              <div className="stat-card" style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}>
+                <div className="icon">👥</div>
+                <div className="value">{stats.total}</div>
+                <div className="label">總報名</div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+      
+      {stats && stats.checkedInList && stats.checkedInList.length > 0 && (
+        <div className="card" style={{ marginTop: '20px' }}>
+          <h3>✅ 已簽到名單 ({stats.checkedIn})</h3>
+          <table>
+            <thead><tr><th>姓名</th><th>Email</th><th>簽到時間</th></tr></thead>
+            <tbody>
+              {stats.checkedInList.map((r, i) => (
+                <tr key={i}>
+                  <td>{r.name}</td>
+                  <td>{r.email}</td>
+                  <td>{new Date(r.checkedInAt).toLocaleString('zh-TW')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      
+      {stats && stats.notCheckedInList && stats.notCheckedInList.length > 0 && (
+        <div className="card" style={{ marginTop: '20px' }}>
+          <h3>⏳ 未簽到名單 ({stats.notCheckedIn})</h3>
+          <table>
+            <thead><tr><th>姓名</th><th>Email</th></tr></thead>
+            <tbody>
+              {stats.notCheckedInList.map((r, i) => (
+                <tr key={i}><td>{r.name}</td><td>{r.email}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==================== 候補名單頁面 ====================
+function WaitlistPage({ events, showToast }) {
+  const [selectedEvent, setSelectedEvent] = useState('');
+  const [waitlist, setWaitlist] = useState([]);
+  const [loading, setLoading] = useState(false);
+  
+  const activeEvents = events.filter(e => e.status === 'active');
+  
+  const loadWaitlist = async (eventId) => {
+    if (!eventId) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/waitlist/${eventId}`);
+      setWaitlist(await res.json());
+    } catch (e) {
+      showToast('載入失敗', 'error');
+    }
+    setLoading(false);
+  };
+  
+  useEffect(() => {
+    if (selectedEvent) loadWaitlist(selectedEvent);
+  }, [selectedEvent]);
+  
+  const notifyNext = async () => {
+    if (!selectedEvent) return;
+    try {
+      const res = await fetch(`/api/waitlist/notify/${selectedEvent}`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`已通知 ${data.notified}`, 'success');
+        loadWaitlist(selectedEvent);
+      } else {
+        showToast(data.error || '通知失敗', 'error');
+      }
+    } catch (e) {
+      showToast('通知失敗', 'error');
+    }
+  };
+  
+  return (
+    <div>
+      <div className="header">
+        <h1>⏳ 候補名單</h1>
+        <button className="btn btn-primary" onClick={notifyNext} disabled={!selectedEvent || waitlist.length === 0}>
+          📧 通知下一位候補
+        </button>
+      </div>
+      
+      <div className="card" style={{ marginBottom: '20px' }}>
+        <h3>選擇活動</h3>
+        <select className="form-control" value={selectedEvent} onChange={e => setSelectedEvent(e.target.value)} style={{ marginTop: '10px' }}>
+          <option value="">-- 請選擇活動 --</option>
+          {activeEvents.map(ev => <option key={ev.id} value={ev.id}>{ev.title} ({ev.date})</option>)}
+        </select>
+      </div>
+      
+      {selectedEvent && (
+        <div className="card">
+          <h3>候補名單 ({waitlist.length} 人)</h3>
+          {waitlist.length === 0 ? (
+            <div className="empty-state"><p>目前沒有候補者</p></div>
+          ) : (
+            <table>
+              <thead><tr><th>順位</th><th>姓名</th><th>Email</th><th>電話</th><th>登記時間</th><th>狀態</th></tr></thead>
+              <tbody>
+                {waitlist.map(w => (
+                  <tr key={w.id}>
+                    <td><strong>#{w.position}</strong></td>
+                    <td>{w.name}</td>
+                    <td>{w.email}</td>
+                    <td>{w.phone || '-'}</td>
+                    <td>{new Date(w.createdAt).toLocaleString('zh-TW')}</td>
+                    <td>
+                      <span className={`badge ${w.notified ? 'badge-green' : 'badge-yellow'}`}>
+                        {w.notified ? '已通知' : '等待中'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==================== 問卷回饋頁面 ====================
+function FeedbackPage({ events, showToast }) {
+  const [selectedEvent, setSelectedEvent] = useState('');
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(false);
+  
+  const loadStats = async (eventId) => {
+    if (!eventId) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/feedback/stats/${eventId}`);
+      setStats(await res.json());
+    } catch (e) {
+      showToast('載入失敗', 'error');
+    }
+    setLoading(false);
+  };
+  
+  useEffect(() => {
+    if (selectedEvent) loadStats(selectedEvent);
+  }, [selectedEvent]);
+  
+  const copyFeedbackLink = () => {
+    const baseUrl = window.location.origin;
+    const link = `${baseUrl}?feedback=${selectedEvent}`;
+    navigator.clipboard.writeText(link);
+    showToast('已複製問卷連結', 'success');
+  };
+  
+  return (
+    <div>
+      <div className="header">
+        <h1>📝 問卷回饋</h1>
+        <button className="btn btn-primary" onClick={copyFeedbackLink} disabled={!selectedEvent}>📋 複製問卷連結</button>
+      </div>
+      
+      <div className="card" style={{ marginBottom: '20px' }}>
+        <h3>選擇活動</h3>
+        <select className="form-control" value={selectedEvent} onChange={e => setSelectedEvent(e.target.value)} style={{ marginTop: '10px' }}>
+          <option value="">-- 請選擇活動 --</option>
+          {events.map(ev => <option key={ev.id} value={ev.id}>{ev.title} ({ev.date})</option>)}
+        </select>
+      </div>
+      
+      {stats && (
+        <>
+          <div className="stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', marginBottom: '20px' }}>
+            <div className="stat-card" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>
+              <div className="icon">⭐</div>
+              <div className="value">{stats.avgRating}</div>
+              <div className="label">平均評分</div>
+            </div>
+            <div className="stat-card" style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}>
+              <div className="icon">📝</div>
+              <div className="value">{stats.total}</div>
+              <div className="label">回饋數</div>
+            </div>
+            {[5,4,3,2,1].map(n => (
+              <div key={n} className="stat-card" style={{ background: n >= 4 ? '#10b981' : n >= 3 ? '#f59e0b' : '#ef4444' }}>
+                <div className="value">{stats.ratings[n] || 0}</div>
+                <div className="label">{'⭐'.repeat(n)}</div>
+              </div>
+            ))}
+          </div>
+          
+          {stats.comments && stats.comments.length > 0 && (
+            <div className="card">
+              <h3>💬 學員回饋 ({stats.comments.length})</h3>
+              <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                {stats.comments.map((c, i) => (
+                  <div key={i} style={{ padding: '15px', background: '#1a1a2e', borderRadius: '8px', marginBottom: '10px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <span>{'⭐'.repeat(c.rating)}</span>
+                      <span style={{ fontSize: '12px', color: '#888' }}>{new Date(c.createdAt).toLocaleDateString('zh-TW')}</span>
+                    </div>
+                    <p style={{ margin: 0, color: '#ddd' }}>{c.comment}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ==================== 數據分析頁面 ====================
+function AnalyticsPage({ showToast }) {
+  const [stats, setStats] = useState(null);
+  const [feedbackStats, setFeedbackStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+  
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/dashboard/stats').then(r => r.json()),
+      fetch('/api/dashboard/feedback').then(r => r.json())
+    ]).then(([s, f]) => {
+      setStats(s);
+      setFeedbackStats(f);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
+  
+  if (loading) return <div className="card"><p>載入中...</p></div>;
+  
+  return (
+    <div>
+      <div className="header"><h1>📈 數據分析</h1></div>
+      
+      {stats && (
+        <>
+          {/* 總覽卡片 */}
+          <div className="stats" style={{ marginBottom: '20px' }}>
+            <div className="stat-card"><div className="icon">📅</div><div className="value">{stats.events.total}</div><div className="label">活動總數</div></div>
+            <div className="stat-card" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}><div className="icon">✅</div><div className="value">{stats.events.active}</div><div className="label">進行中</div></div>
+            <div className="stat-card" style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}><div className="icon">👥</div><div className="value">{stats.registrations.confirmed}</div><div className="label">已確認報名</div></div>
+            <div className="stat-card" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}><div className="icon">⏳</div><div className="value">{stats.registrations.pending}</div><div className="label">待確認</div></div>
+            <div className="stat-card" style={{ background: 'linear-gradient(135deg, #ec4899, #be185d)' }}><div className="icon">✅</div><div className="value">{stats.registrations.checkedIn}</div><div className="label">已簽到</div></div>
+          </div>
+          
+          {/* 報名趨勢 */}
+          <div className="card" style={{ marginBottom: '20px' }}>
+            <h3>📊 最近 7 天報名趨勢</h3>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', height: '150px', marginTop: '20px' }}>
+              {stats.trend.map((d, i) => {
+                const maxCount = Math.max(...stats.trend.map(t => t.count), 1);
+                const height = (d.count / maxCount) * 120;
+                return (
+                  <div key={i} style={{ flex: 1, textAlign: 'center' }}>
+                    <div style={{ background: 'linear-gradient(to top, #6366f1, #a855f7)', height: `${height}px`, borderRadius: '4px 4px 0 0', minHeight: '4px' }}></div>
+                    <div style={{ fontSize: '12px', color: '#888', marginTop: '8px' }}>{d.date.slice(5)}</div>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold' }}>{d.count}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          
+          {/* 各活動統計 */}
+          <div className="card" style={{ marginBottom: '20px' }}>
+            <h3>📅 各活動統計</h3>
+            <table>
+              <thead><tr><th>活動</th><th>日期</th><th>名額</th><th>報名</th><th>簽到</th><th>報名率</th></tr></thead>
+              <tbody>
+                {stats.eventStats.map(e => (
+                  <tr key={e.id}>
+                    <td>{e.title}</td>
+                    <td>{e.date}</td>
+                    <td>{e.maxParticipants}</td>
+                    <td>{e.registrations}</td>
+                    <td>{e.checkedIn}</td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ width: '100px', height: '8px', background: '#333', borderRadius: '4px', overflow: 'hidden' }}>
+                          <div style={{ width: `${(e.registrations / e.maxParticipants) * 100}%`, height: '100%', background: '#10b981' }}></div>
+                        </div>
+                        <span>{Math.round((e.registrations / e.maxParticipants) * 100)}%</span>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+      
+      {/* 問卷統計 */}
+      {feedbackStats && (
+        <div className="card">
+          <h3>⭐ 問卷回饋總覽</h3>
+          <div className="stats" style={{ marginTop: '16px' }}>
+            <div className="stat-card" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>
+              <div className="icon">⭐</div>
+              <div className="value">{feedbackStats.avgRating}</div>
+              <div className="label">整體評分</div>
+            </div>
+            <div className="stat-card">
+              <div className="icon">📝</div>
+              <div className="value">{feedbackStats.total}</div>
+              <div className="label">回饋總數</div>
+            </div>
+          </div>
+          {feedbackStats.recentComments && feedbackStats.recentComments.length > 0 && (
+            <div style={{ marginTop: '20px' }}>
+              <h4>💬 最新回饋</h4>
+              {feedbackStats.recentComments.slice(0, 5).map((c, i) => (
+                <div key={i} style={{ padding: '12px', background: '#1a1a2e', borderRadius: '8px', marginTop: '10px' }}>
+                  <span>{'⭐'.repeat(c.rating)}</span>
+                  <p style={{ margin: '8px 0 0', color: '#ddd' }}>{c.comment}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 手機版底部導航
 function MobileNav({ page, setPage }) {
   const items = [
@@ -2401,9 +3066,11 @@ function App() {
   const [status, setStatus] = useState({ firebase: false, openai: false, gemini: false });
   const [toast, setToast] = useState(null);
 
-  // 檢查是否為公開報名頁面
+  // 檢查 URL 參數
   const urlParams = new URLSearchParams(window.location.search);
   const registerEventId = urlParams.get('register');
+  const checkinEventId = urlParams.get('checkin');
+  const feedbackEventId = urlParams.get('feedback');
 
   const showToast = (message, type) => setToast({ message, type });
   
@@ -2420,9 +3087,19 @@ function App() {
 
   useEffect(() => { refresh(); }, []);
 
-  // 如果是公開報名頁面，顯示報名表單
+  // 公開報名頁面
   if (registerEventId) {
     return <PublicRegisterForm eventId={registerEventId} />;
+  }
+  
+  // 公開簽到頁面
+  if (checkinEventId) {
+    return <PublicCheckinForm eventId={checkinEventId} />;
+  }
+  
+  // 公開問卷頁面
+  if (feedbackEventId) {
+    return <PublicFeedbackForm eventId={feedbackEventId} />;
   }
 
   return (
@@ -2432,10 +3109,14 @@ function App() {
         {page === 'dashboard' && <Dashboard events={events} registrations={registrations} status={status} />}
         {page === 'events' && <EventsPage events={events} onRefresh={refresh} showToast={showToast} />}
         {page === 'registrations' && <RegistrationsPage events={events} registrations={registrations} onRefresh={refresh} showToast={showToast} />}
+        {page === 'checkin' && <CheckinPage events={events} registrations={registrations} showToast={showToast} onRefresh={refresh} />}
+        {page === 'waitlist' && <WaitlistPage events={events} showToast={showToast} />}
         {page === 'notifications' && <NotificationsPage events={events} registrations={registrations} showToast={showToast} />}
+        {page === 'feedback' && <FeedbackPage events={events} showToast={showToast} />}
         {page === 'poster' && <PosterPage events={events} showToast={showToast} />}
         {page === 'certificates' && <CertificatesPage events={events} registrations={registrations} showToast={showToast} />}
         {page === 'showcase' && <ShowcasePage events={events} showToast={showToast} />}
+        {page === 'analytics' && <AnalyticsPage showToast={showToast} />}
         {page === 'guide' && <GuidePage events={events} registrations={registrations} showToast={showToast} />}
         {page === 'settings' && <SettingsPage status={status} />}
       </div>
