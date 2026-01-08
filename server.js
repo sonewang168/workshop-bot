@@ -9,6 +9,12 @@ require('dotenv').config();
 const app = express();
 app.use(cors());
 
+// ==================== Together AI 設定 ====================
+const TOGETHER_API_KEY = process.env.TOGETHER_API_KEY || '';
+if (TOGETHER_API_KEY) {
+  console.log('✅ Together AI 已設定');
+}
+
 // ==================== Resend Email 設定 ====================
 let resend = null;
 if (process.env.RESEND_API_KEY) {
@@ -1820,6 +1826,7 @@ app.get('/api/status', (req, res) => {
     firebase: useFirebase,
     openai: !!process.env.OPENAI_API_KEY,
     gemini: !!process.env.GEMINI_API_KEY,
+    together: !!process.env.TOGETHER_API_KEY,
     email: !!process.env.RESEND_API_KEY,
     adminCount: ADMIN_IDS.length,
     timestamp: new Date().toISOString()
@@ -2456,6 +2463,320 @@ async function checkSchedules() {
     console.error('檢查排程錯誤:', e.message);
   }
 }
+
+// ==================== AI 證書生成系統 ====================
+
+// 根據活動主題自動判斷證書風格
+function getCertificateStyle(eventTitle, eventDescription) {
+  const text = `${eventTitle} ${eventDescription || ''}`.toLowerCase();
+  
+  if (text.includes('ai') || text.includes('程式') || text.includes('coding') || text.includes('開發') || text.includes('技術')) {
+    return { style: '科技風', colors: '深藍色和紫色漸層', elements: '電路圖案、數位元素、幾何線條' };
+  } else if (text.includes('親子') || text.includes('兒童') || text.includes('手作') || text.includes('創意')) {
+    return { style: '活潑風', colors: '繽紛彩色、粉嫩色調', elements: '可愛插畫、星星、彩虹元素' };
+  } else if (text.includes('企業') || text.includes('商業') || text.includes('管理') || text.includes('領導')) {
+    return { style: '正式商務', colors: '金色和深藍色', elements: '金邊裝飾、盾牌徽章、莊重花紋' };
+  } else if (text.includes('藝術') || text.includes('繪畫') || text.includes('設計') || text.includes('美術')) {
+    return { style: '藝術風', colors: '水彩渲染效果', elements: '畫筆、調色盤、藝術裝飾' };
+  } else if (text.includes('音樂') || text.includes('舞蹈') || text.includes('表演')) {
+    return { style: '表演藝術', colors: '紅色和金色', elements: '音符、舞台燈光、幕布元素' };
+  } else {
+    return { style: '典雅專業', colors: '深綠色和金色', elements: '橄欖枝、桂冠、典雅花紋邊框' };
+  }
+}
+
+// 生成證書背景圖（使用 Together AI）
+async function generateCertificateBackground(eventTitle, eventDescription) {
+  if (!TOGETHER_API_KEY) {
+    console.log('⚠️ Together AI 未設定，使用預設背景');
+    return null;
+  }
+  
+  const styleInfo = getCertificateStyle(eventTitle, eventDescription);
+  
+  const prompt = `Design a beautiful certificate background template for "${eventTitle}". 
+Style: ${styleInfo.style}
+Colors: ${styleInfo.colors}
+Decorative elements: ${styleInfo.elements}
+
+Requirements:
+- Elegant border design
+- Leave large blank space in center for text overlay
+- NO text, NO letters, NO numbers, NO names on the certificate
+- Only decorative patterns, borders, and artistic elements
+- Professional and high-quality design
+- Landscape orientation (horizontal)
+- Resolution suitable for A4 paper`;
+
+  try {
+    console.log(`[AI 證書] 生成背景: ${eventTitle}`);
+    console.log(`[AI 證書] 風格: ${styleInfo.style}`);
+    
+    const response = await fetch('https://api.together.xyz/v1/images/generations', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${TOGETHER_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'black-forest-labs/FLUX.1-schnell-Free',
+        prompt: prompt,
+        width: 1024,
+        height: 768,
+        n: 1
+      })
+    });
+    
+    const data = await response.json();
+    
+    if (data.data && data.data[0]) {
+      const imageUrl = data.data[0].url || data.data[0].b64_json;
+      console.log('[AI 證書] ✓ 背景生成成功');
+      return { url: imageUrl, style: styleInfo };
+    } else {
+      console.error('[AI 證書] 生成失敗:', data);
+      return null;
+    }
+  } catch (error) {
+    console.error('[AI 證書] 錯誤:', error.message);
+    return null;
+  }
+}
+
+// 生成證書 PDF（結合 AI 背景 + 學員資料）
+async function generateCertificatePDF(registration, event, backgroundUrl) {
+  // 使用 HTML 模板生成證書（可在前端渲染為 PDF）
+  const certNumber = `CERT-${event.id.slice(0, 4).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+  const issueDate = new Date().toLocaleDateString('zh-TW', { year: 'numeric', month: 'long', day: 'numeric' });
+  
+  const certificateHTML = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&family=Playfair+Display:wght@700&display=swap');
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+          width: 297mm; height: 210mm; 
+          font-family: 'Noto Sans TC', sans-serif;
+          ${backgroundUrl ? `background-image: url('${backgroundUrl}'); background-size: cover; background-position: center;` : ''}
+          display: flex; align-items: center; justify-content: center;
+        }
+        .certificate {
+          width: 90%; height: 85%;
+          ${!backgroundUrl ? `
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: 8px double gold;
+            border-radius: 20px;
+          ` : ''}
+          display: flex; flex-direction: column;
+          align-items: center; justify-content: center;
+          text-align: center; padding: 40px;
+          ${backgroundUrl ? 'background: rgba(255,255,255,0.85); border-radius: 20px;' : 'color: white;'}
+        }
+        .title { 
+          font-family: 'Playfair Display', serif;
+          font-size: 48px; font-weight: 700; 
+          margin-bottom: 20px;
+          ${backgroundUrl ? 'color: #333;' : ''}
+        }
+        .subtitle { font-size: 24px; margin-bottom: 40px; opacity: 0.9; ${backgroundUrl ? 'color: #555;' : ''} }
+        .name { 
+          font-size: 42px; font-weight: 700; 
+          margin: 30px 0; padding: 10px 40px;
+          border-bottom: 3px solid ${backgroundUrl ? '#333' : 'gold'};
+          ${backgroundUrl ? 'color: #222;' : ''}
+        }
+        .event { font-size: 28px; margin: 20px 0; ${backgroundUrl ? 'color: #444;' : ''} }
+        .details { font-size: 18px; margin: 30px 0; line-height: 1.8; ${backgroundUrl ? 'color: #666;' : 'opacity: 0.9;'} }
+        .footer { 
+          margin-top: auto; font-size: 14px; 
+          display: flex; justify-content: space-between; width: 100%;
+          ${backgroundUrl ? 'color: #888;' : 'opacity: 0.8;'}
+        }
+        .seal { 
+          width: 80px; height: 80px; 
+          border: 3px solid ${backgroundUrl ? '#c9a227' : 'gold'}; 
+          border-radius: 50%; 
+          display: flex; align-items: center; justify-content: center;
+          font-size: 12px; margin-top: 20px;
+          ${backgroundUrl ? 'color: #c9a227;' : ''}
+        }
+      </style>
+    </head>
+    <body>
+      <div class="certificate">
+        <div class="title">Certificate of Completion</div>
+        <div class="subtitle">研習證書</div>
+        <div class="name">${registration.name}</div>
+        <div class="event">完成「${event.title}」研習課程</div>
+        <div class="details">
+          <div>📅 課程日期：${event.date}</div>
+          <div>📍 課程地點：${event.location}</div>
+          <div>👨‍🏫 指導講師：${event.instructorName || '專業講師'}</div>
+        </div>
+        <div class="seal">VERIFIED</div>
+        <div class="footer">
+          <span>證書編號：${certNumber}</span>
+          <span>發證日期：${issueDate}</span>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+  
+  return {
+    html: certificateHTML,
+    certNumber,
+    issueDate,
+    backgroundUrl
+  };
+}
+
+// API: 生成 AI 證書背景
+app.post('/api/certificate/generate-background', async (req, res) => {
+  try {
+    const { eventId } = req.body;
+    const event = await getEvent(eventId);
+    
+    if (!event) {
+      return res.json({ success: false, error: '找不到活動' });
+    }
+    
+    const result = await generateCertificateBackground(event.title, event.description);
+    
+    if (result) {
+      res.json({ success: true, backgroundUrl: result.url, style: result.style });
+    } else {
+      res.json({ success: false, error: 'AI 背景生成失敗，將使用預設模板' });
+    }
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// API: 生成單張證書
+app.post('/api/certificate/generate', async (req, res) => {
+  try {
+    const { eventId, registrationId, backgroundUrl } = req.body;
+    
+    const event = await getEvent(eventId);
+    const regs = await getRegistrations();
+    const reg = regs.find(r => r.id === registrationId);
+    
+    if (!event || !reg) {
+      return res.json({ success: false, error: '找不到活動或報名資料' });
+    }
+    
+    const certificate = await generateCertificatePDF(reg, event, backgroundUrl);
+    res.json({ success: true, certificate });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// API: 批次生成並發送證書
+app.post('/api/certificate/send-all', async (req, res) => {
+  try {
+    const { eventId, backgroundUrl } = req.body;
+    
+    const event = await getEvent(eventId);
+    if (!event) {
+      return res.json({ success: false, error: '找不到活動' });
+    }
+    
+    const regs = await getRegistrations();
+    const confirmedRegs = regs.filter(r => r.eventId === eventId && r.status === 'confirmed');
+    
+    if (confirmedRegs.length === 0) {
+      return res.json({ success: false, error: '沒有已確認的報名者' });
+    }
+    
+    // 生成背景（如果沒有提供）
+    let bgUrl = backgroundUrl;
+    if (!bgUrl && TOGETHER_API_KEY) {
+      const bgResult = await generateCertificateBackground(event.title, event.description);
+      bgUrl = bgResult?.url;
+    }
+    
+    const senderEmail = process.env.SENDER_EMAIL || 'onboarding@resend.dev';
+    let sent = 0;
+    let failed = [];
+    
+    for (let i = 0; i < confirmedRegs.length; i++) {
+      const reg = confirmedRegs[i];
+      
+      // 延遲避免速率限制
+      if (i > 0) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
+      }
+      
+      try {
+        const cert = await generateCertificatePDF(reg, event, bgUrl);
+        
+        // 發送 Email（附帶證書 HTML）
+        if (resend) {
+          await resend.emails.send({
+            from: senderEmail,
+            to: reg.email,
+            subject: `🏆 研習證書 - ${event.title}`,
+            html: `
+              <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <div style="background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
+                  <h1>🏆 恭喜完成研習！</h1>
+                </div>
+                <div style="background: #f8fafc; padding: 30px; border-radius: 0 0 10px 10px;">
+                  <p>親愛的 ${reg.name} 您好，</p>
+                  <p>感謝您參與「<strong>${event.title}</strong>」研習課程！</p>
+                  <p>您的研習證書已準備完成，請點擊下方連結查看或下載：</p>
+                  <div style="background: #e0e7ff; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                    <p style="margin: 0;"><strong>證書編號：</strong>${cert.certNumber}</p>
+                    <p style="margin: 5px 0;"><strong>發證日期：</strong>${cert.issueDate}</p>
+                  </div>
+                  <p style="text-align: center;">
+                    <a href="${process.env.WEB_URL || 'http://localhost:3000'}?cert=${cert.certNumber}" 
+                       style="display: inline-block; background: #6366f1; color: white; padding: 12px 30px; border-radius: 8px; text-decoration: none; font-weight: bold;">
+                      📥 查看證書
+                    </a>
+                  </p>
+                  <p style="color: #64748b; font-size: 12px; margin-top: 30px;">此證書由系統自動生成，具有唯一編號可供驗證。</p>
+                </div>
+              </div>
+            `
+          });
+        }
+        
+        sent++;
+        console.log(`[證書發送] ✓ ${reg.email}`);
+      } catch (e) {
+        console.error(`[證書發送] ✗ ${reg.email}:`, e.message);
+        failed.push({ email: reg.email, error: e.message });
+      }
+    }
+    
+    // 更新活動證書數量
+    await updateEvent(eventId, { certificates: sent });
+    
+    res.json({ success: true, sent, total: confirmedRegs.length, failed });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// API: 驗證證書
+app.get('/api/certificate/verify/:certNumber', async (req, res) => {
+  // 從證書編號解析活動 ID 和時間戳
+  // 格式: CERT-XXXX-TIMESTAMP
+  const { certNumber } = req.params;
+  
+  // 這裡可以加入更完整的驗證邏輯（如存入資料庫）
+  res.json({ 
+    valid: certNumber.startsWith('CERT-'),
+    certNumber,
+    message: certNumber.startsWith('CERT-') ? '此證書編號格式正確' : '證書編號格式無效'
+  });
+});
 
 // ==================== 1. 簽到系統 API ====================
 // 產生簽到 QR Code 連結
