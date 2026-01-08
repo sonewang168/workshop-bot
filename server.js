@@ -9,6 +9,10 @@ require('dotenv').config();
 const app = express();
 app.use(cors());
 
+// 增加 body size 限制（支援大型 Base64 圖片）
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
 // ==================== Together AI 設定 ====================
 const TOGETHER_API_KEY = process.env.TOGETHER_API_KEY || '';
 if (TOGETHER_API_KEY) {
@@ -2530,30 +2534,32 @@ async function generateCertificateBackground(eventTitle, eventDescription) {
     const data = await response.json();
     
     if (data.data && data.data[0]) {
-      let imageData = data.data[0].url || data.data[0].b64_json;
-      
-      // 如果是 URL，下載圖片並轉成 Base64
-      if (imageData && imageData.startsWith('http')) {
-        try {
-          console.log('[AI 證書] 下載圖片轉 Base64...');
-          const imgResponse = await fetch(imageData);
-          const arrayBuffer = await imgResponse.arrayBuffer();
-          const base64 = Buffer.from(arrayBuffer).toString('base64');
-          imageData = `data:image/png;base64,${base64}`;
-          console.log('[AI 證書] ✓ Base64 轉換成功');
-        } catch (e) {
-          console.error('[AI 證書] Base64 轉換失敗:', e.message);
-        }
-      }
-      
+      const imageUrl = data.data[0].url || data.data[0].b64_json;
       console.log('[AI 證書] ✓ 背景生成成功');
-      return { url: imageData, style: styleInfo };
+      return { url: imageUrl, style: styleInfo };
     } else {
       console.error('[AI 證書] 生成失敗:', data);
       return null;
     }
   } catch (error) {
     console.error('[AI 證書] 錯誤:', error.message);
+    return null;
+  }
+}
+
+// 下載圖片並轉成 Base64（用於郵件嵌入）
+async function imageUrlToBase64(url) {
+  if (!url || url.startsWith('data:')) return url;
+  try {
+    console.log('[證書] 下載圖片轉 Base64...');
+    const response = await fetch(url);
+    const arrayBuffer = await response.arrayBuffer();
+    const base64 = Buffer.from(arrayBuffer).toString('base64');
+    const contentType = response.headers.get('content-type') || 'image/png';
+    console.log('[證書] ✓ Base64 轉換成功');
+    return `data:${contentType};base64,${base64}`;
+  } catch (e) {
+    console.error('[證書] Base64 轉換失敗:', e.message);
     return null;
   }
 }
@@ -2649,7 +2655,7 @@ async function generateCertificatePDF(registration, event, backgroundUrl) {
   };
 }
 
-// API: 生成 AI 證書背景
+// API: 生成 AI 證書背景（前端預覽用，返回原始 URL）
 app.post('/api/certificate/generate-background', async (req, res) => {
   try {
     const { eventId } = req.body;
@@ -2662,6 +2668,7 @@ app.post('/api/certificate/generate-background', async (req, res) => {
     const result = await generateCertificateBackground(event.title, event.description);
     
     if (result) {
+      // 返回原始 URL 給前端預覽（不轉 Base64）
       res.json({ success: true, backgroundUrl: result.url, style: result.style });
     } else {
       res.json({ success: false, error: 'AI 背景生成失敗，將使用預設模板' });
@@ -2715,6 +2722,14 @@ app.post('/api/certificate/send-all', async (req, res) => {
       bgUrl = bgResult?.url;
     }
     
+    // 如果有背景 URL，轉成 Base64（只轉一次，所有學員共用）
+    let bgBase64 = null;
+    if (bgUrl && bgUrl.startsWith('http')) {
+      bgBase64 = await imageUrlToBase64(bgUrl);
+    } else if (bgUrl && bgUrl.startsWith('data:')) {
+      bgBase64 = bgUrl;
+    }
+    
     const senderEmail = process.env.SENDER_EMAIL || 'onboarding@resend.dev';
     const orgName = process.env.ORG_NAME || '工作坊';
     let sent = 0;
@@ -2747,8 +2762,8 @@ app.post('/api/certificate/send-all', async (req, res) => {
         
         const colors = styleColors[styleInfo.style] || styleColors['典雅專業'];
         
-        // 如果有 AI 背景，嵌入為 img 標籤（而非背景圖）
-        const hasAiBg = bgUrl && bgUrl.startsWith('data:');
+        // 檢查是否有 Base64 背景
+        const hasAiBg = bgBase64 && bgBase64.startsWith('data:');
         
         // 直接在郵件中嵌入精美證書
         if (resend) {
@@ -2769,7 +2784,7 @@ app.post('/api/certificate/send-all', async (req, res) => {
                 ${hasAiBg ? `
                   <!-- AI 生成的背景圖 -->
                   <div style="position: relative; margin-bottom: 30px;">
-                    <img src="${bgUrl}" alt="Certificate Background" style="width: 100%; border-radius: 15px; display: block;" />
+                    <img src="${bgBase64}" alt="Certificate Background" style="width: 100%; border-radius: 15px; display: block;" />
                     <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 85%; background: rgba(255,255,255,0.95); border-radius: 10px; padding: 30px; text-align: center;">
                       <h2 style="font-family: Georgia, serif; font-size: 28px; color: ${colors.primary}; margin: 0 0 5px; font-style: italic;">Certificate of Completion</h2>
                       <p style="color: #666; font-size: 16px; margin: 0 0 15px; letter-spacing: 5px;">研 習 證 書</p>
