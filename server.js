@@ -1695,8 +1695,15 @@ app.post('/api/send-notification', async (req, res) => {
     let failed = [];
     console.log(`[通知發送] 開始發送給 ${confirmedRegs.length} 人`);
     
-    for (const reg of confirmedRegs) {
-      console.log(`[通知發送] 嘗試發送給: ${reg.email}`);
+    for (let i = 0; i < confirmedRegs.length; i++) {
+      const reg = confirmedRegs[i];
+      console.log(`[通知發送] 嘗試發送給: ${reg.email} (${i+1}/${confirmedRegs.length})`);
+      
+      // 每封信之間延遲 600ms 避免速率限制
+      if (i > 0) {
+        await new Promise(resolve => setTimeout(resolve, 600));
+      }
+      
       try {
         const result = await resend.emails.send({
           from: senderEmail,
