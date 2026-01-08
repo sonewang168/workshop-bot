@@ -132,6 +132,7 @@ function PublicRegisterForm({ eventId, onSuccess }) {
   const [submitted, setSubmitted] = useState(false);
   const [mode, setMode] = useState('register'); // register, check, cancelled
   const [foundReg, setFoundReg] = useState(null);
+  const [lineConfig, setLineConfig] = useState({ lineBotId: '', lineBotUrl: '' });
 
   useEffect(() => {
     API.getEvents().then(events => {
@@ -139,6 +140,8 @@ function PublicRegisterForm({ eventId, onSuccess }) {
       setEvent(ev);
       setLoading(false);
     });
+    // 取得 LINE Bot 設定
+    fetch('/api/public-config').then(r => r.json()).then(setLineConfig).catch(() => {});
   }, [eventId]);
 
   const handleSubmit = async (e) => {
@@ -211,17 +214,50 @@ function PublicRegisterForm({ eventId, onSuccess }) {
   }
 
   if (submitted) {
+    const lineBotUrl = lineConfig.lineBotUrl || `https://line.me/R/ti/p/${lineConfig.lineBotId}`;
+    const lineQRImage = lineConfig.lineBotId && lineConfig.lineBotId !== '@YOUR_BOT_ID'
+      ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(lineBotUrl)}`
+      : null;
+    
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#0f0f1a' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#0f0f1a', padding: '20px' }}>
         <div className="card" style={{ maxWidth: '500px', textAlign: 'center' }}>
           <div style={{ fontSize: '64px', marginBottom: '20px' }}>🎉</div>
           <h2 style={{ marginBottom: '16px', color: '#10b981' }}>報名成功！</h2>
           <p style={{ color: '#94a3b8', marginBottom: '20px' }}>我們已收到您的報名，確認信已寄送至您的 Email。</p>
-          <div style={{ background: '#1a1a2e', borderRadius: '12px', padding: '20px', textAlign: 'left' }}>
+          <div style={{ background: '#1a1a2e', borderRadius: '12px', padding: '20px', textAlign: 'left', marginBottom: '20px' }}>
             <p><strong>活動：</strong>{event.title}</p>
             <p><strong>時間：</strong>{event.date} {event.time}{event.endTime ? ' - ' + event.endTime : ''}</p>
             <p><strong>地點：</strong>{event.location}</p>
           </div>
+          
+          {/* LINE Bot 綁定區塊 - 只在有設定 LINE Bot ID 時顯示 */}
+          {lineQRImage && (
+            <div style={{ background: 'linear-gradient(135deg, #06c755, #00b900)', borderRadius: '12px', padding: '20px', color: 'white' }}>
+              <h3 style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '24px' }}>📱</span> 接收 LINE 通知（可選）
+              </h3>
+              <p style={{ fontSize: '14px', opacity: 0.9, marginBottom: '16px' }}>
+                加入 LINE 好友，即時收到活動提醒、課前資料等通知
+              </p>
+              <div style={{ background: 'white', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
+                <img src={lineQRImage} alt="LINE Bot QR Code" style={{ width: '150px', height: '150px' }} />
+              </div>
+              <p style={{ fontSize: '13px', opacity: 0.9, marginBottom: '8px' }}>
+                或搜尋 LINE ID：<strong>{lineConfig.lineBotId}</strong>
+              </p>
+              <div style={{ background: 'rgba(255,255,255,0.2)', borderRadius: '8px', padding: '12px', fontSize: '13px', textAlign: 'left' }}>
+                <p style={{ marginBottom: '8px' }}><strong>綁定步驟：</strong></p>
+                <p>1️⃣ 掃描 QR Code 或搜尋 ID 加入好友</p>
+                <p>2️⃣ 在聊天室輸入：<code style={{ background: 'rgba(0,0,0,0.2)', padding: '2px 6px', borderRadius: '4px' }}>綁定 {form.email}</code></p>
+                <p>3️⃣ 完成！即可收到 LINE 通知</p>
+              </div>
+              <a href={lineBotUrl} target="_blank" rel="noopener noreferrer" 
+                style={{ display: 'inline-block', marginTop: '16px', background: 'white', color: '#06c755', padding: '10px 24px', borderRadius: '24px', fontWeight: 'bold', textDecoration: 'none' }}>
+                點擊加入 LINE 好友
+              </a>
+            </div>
+          )}
         </div>
       </div>
     );

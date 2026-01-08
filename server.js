@@ -1651,6 +1651,17 @@ app.get('/api/events', async (req, res) => { try { res.json(await getEvents()); 
 app.post('/api/events', async (req, res) => { try { res.json(await addEvent(req.body)); } catch (e) { res.status(500).json({ error: e.message }); } });
 app.put('/api/events/:id', async (req, res) => { try { await updateEvent(req.params.id, req.body); res.json({ success: true }); } catch (e) { res.status(500).json({ error: e.message }); } });
 
+// 公開設定 API（給報名頁面用）
+app.get('/api/public-config', (req, res) => {
+  res.json({
+    lineBotId: process.env.LINE_BOT_BASIC_ID || '@YOUR_BOT_ID',
+    lineBotUrl: process.env.LINE_BOT_BASIC_ID 
+      ? `https://line.me/R/ti/p/${process.env.LINE_BOT_BASIC_ID}`
+      : null,
+    orgName: process.env.ORG_NAME || '工作坊'
+  });
+});
+
 app.delete('/api/events/:id', async (req, res) => {
   try {
     if (useFirebase) {
