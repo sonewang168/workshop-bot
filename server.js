@@ -2485,7 +2485,7 @@ function getCertificateStyle(eventTitle, eventDescription) {
   }
 }
 
-// 生成證書背景圖（使用 Together AI）
+// 生成證書背景圖（使用 Together AI FLUX）
 async function generateCertificateBackground(eventTitle, eventDescription) {
   if (!TOGETHER_API_KEY) {
     console.log('⚠️ Together AI 未設定，使用預設背景');
@@ -2494,19 +2494,7 @@ async function generateCertificateBackground(eventTitle, eventDescription) {
   
   const styleInfo = getCertificateStyle(eventTitle, eventDescription);
   
-  const prompt = `Design a beautiful certificate background template for "${eventTitle}". 
-Style: ${styleInfo.style}
-Colors: ${styleInfo.colors}
-Decorative elements: ${styleInfo.elements}
-
-Requirements:
-- Elegant border design
-- Leave large blank space in center for text overlay
-- NO text, NO letters, NO numbers, NO names on the certificate
-- Only decorative patterns, borders, and artistic elements
-- Professional and high-quality design
-- Landscape orientation (horizontal)
-- Resolution suitable for A4 paper`;
+  const prompt = `A beautiful certificate background template, ${styleInfo.style} style, ${styleInfo.colors}, decorated with ${styleInfo.elements}. Elegant ornate border frame, large empty white space in center for text, professional high-quality design, landscape orientation, golden accents, subtle patterns, NO text NO letters NO words NO numbers, only decorative elements and borders`;
 
   try {
     console.log(`[AI 證書] 生成背景: ${eventTitle}`);
@@ -2519,11 +2507,12 @@ Requirements:
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'black-forest-labs/FLUX.1-schnell-Free',
+        model: 'black-forest-labs/FLUX.1-schnell',
         prompt: prompt,
-        width: 1024,
-        height: 768,
-        n: 1
+        width: 1440,
+        height: 960,
+        n: 1,
+        steps: 4
       })
     });
     
