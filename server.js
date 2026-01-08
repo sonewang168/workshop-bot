@@ -2717,6 +2717,22 @@ app.post('/api/certificate/send-all', async (req, res) => {
         const certNumber = `CERT-${event.id.slice(0, 4).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
         const issueDate = new Date().toLocaleDateString('zh-TW', { year: 'numeric', month: 'long', day: 'numeric' });
         
+        // 根據活動類型選擇證書風格
+        const styleInfo = getCertificateStyle(event.title, event.description);
+        
+        // 不同風格的配色方案
+        const styleColors = {
+          '科技風': { primary: '#6366f1', secondary: '#a855f7', accent: '#06b6d4', bg: 'linear-gradient(135deg, #0f0f23 0%, #1a1a3e 50%, #0f0f23 100%)', border: '#6366f1', text: '#e2e8f0' },
+          '活潑風': { primary: '#f472b6', secondary: '#fb923c', accent: '#fbbf24', bg: 'linear-gradient(135deg, #fdf2f8 0%, #fef3c7 50%, #ecfdf5 100%)', border: '#f472b6', text: '#831843' },
+          '正式商務': { primary: '#1e3a5f', secondary: '#c9a227', accent: '#c9a227', bg: 'linear-gradient(135deg, #1e3a5f 0%, #2d4a6f 50%, #1e3a5f 100%)', border: '#c9a227', text: '#f8fafc' },
+          '藝術風': { primary: '#7c3aed', secondary: '#ec4899', accent: '#06b6d4', bg: 'linear-gradient(135deg, #faf5ff 0%, #fce7f3 50%, #ecfeff 100%)', border: '#7c3aed', text: '#581c87' },
+          '表演藝術': { primary: '#dc2626', secondary: '#c9a227', accent: '#fbbf24', bg: 'linear-gradient(135deg, #450a0a 0%, #7f1d1d 50%, #450a0a 100%)', border: '#c9a227', text: '#fef2f2' },
+          '典雅專業': { primary: '#166534', secondary: '#c9a227', accent: '#c9a227', bg: 'linear-gradient(135deg, #f0fdf4 0%, #fefce8 50%, #f0fdf4 100%)', border: '#c9a227', text: '#166534' }
+        };
+        
+        const colors = styleColors[styleInfo.style] || styleColors['典雅專業'];
+        const isDark = ['科技風', '正式商務', '表演藝術'].includes(styleInfo.style);
+        
         // 直接在郵件中嵌入精美證書
         if (resend) {
           await resend.emails.send({
@@ -2724,87 +2740,101 @@ app.post('/api/certificate/send-all', async (req, res) => {
             to: reg.email,
             subject: `🏆 研習證書 - ${event.title}`,
             html: `
-              <div style="font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif; max-width: 800px; margin: 0 auto; padding: 20px;">
+              <div style="font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background: #f1f5f9;">
                 
                 <!-- 頂部通知 -->
-                <div style="background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 25px; border-radius: 15px; text-align: center; margin-bottom: 30px;">
+                <div style="background: linear-gradient(135deg, ${colors.primary}, ${colors.secondary}); color: white; padding: 25px; border-radius: 15px; text-align: center; margin-bottom: 30px;">
                   <h1 style="margin: 0; font-size: 28px;">🎉 恭喜完成研習！</h1>
-                  <p style="margin: 10px 0 0; opacity: 0.9;">您的研習證書已準備完成</p>
+                  <p style="margin: 10px 0 0; opacity: 0.9;">您的研習證書已準備完成（${styleInfo.style}）</p>
                 </div>
                 
-                <!-- ========== 證書本體（直接嵌入郵件） ========== -->
-                <div style="background: ${bgUrl ? `url('${bgUrl}') center/cover` : 'linear-gradient(135deg, #1a1a2e, #2d2d44)'}; border-radius: 20px; padding: 15px; margin-bottom: 30px; box-shadow: 0 10px 40px rgba(0,0,0,0.3);">
-                  <div style="background: rgba(255,255,255,0.95); border-radius: 15px; padding: 50px 40px; text-align: center; border: 3px solid #c9a227;">
-                    
-                    <!-- 證書標題 -->
-                    <div style="border-bottom: 2px solid #c9a227; padding-bottom: 20px; margin-bottom: 30px;">
-                      <h2 style="font-family: 'Times New Roman', serif; font-size: 36px; color: #1a1a2e; margin: 0; letter-spacing: 3px;">
-                        Certificate of Completion
+                <!-- ========== 證書本體 ========== -->
+                <div style="background: ${colors.bg}; border-radius: 20px; padding: 20px; margin-bottom: 30px; box-shadow: 0 10px 40px rgba(0,0,0,0.2);">
+                  
+                  <!-- 裝飾邊框 -->
+                  <div style="border: 4px solid ${colors.border}; border-radius: 15px; padding: 8px;">
+                    <div style="border: 2px solid ${colors.border}; border-radius: 10px; padding: 40px; background: ${isDark ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.9)'}; text-align: center;">
+                      
+                      <!-- 頂部裝飾 -->
+                      <div style="margin-bottom: 20px;">
+                        <span style="font-size: 40px;">🏆</span>
+                      </div>
+                      
+                      <!-- 證書標題 -->
+                      <div style="border-bottom: 3px double ${colors.accent}; padding-bottom: 20px; margin-bottom: 25px; display: inline-block;">
+                        <h2 style="font-family: 'Times New Roman', Georgia, serif; font-size: 32px; color: ${colors.primary}; margin: 0; letter-spacing: 2px; font-style: italic;">
+                          Certificate of Completion
+                        </h2>
+                        <p style="color: #666; font-size: 20px; margin: 10px 0 0; letter-spacing: 8px;">研 習 證 書</p>
+                      </div>
+                      
+                      <!-- 授予說明 -->
+                      <p style="color: #666; font-size: 16px; margin: 0 0 10px;">茲 證 明</p>
+                      
+                      <!-- 學員姓名 -->
+                      <div style="margin: 20px 0;">
+                        <h1 style="font-size: 38px; color: #1a1a2e; margin: 0; font-weight: bold; display: inline-block; border-bottom: 3px solid ${colors.accent}; padding: 5px 40px 10px;">
+                          ${reg.name}
+                        </h1>
+                      </div>
+                      
+                      <!-- 完成說明 -->
+                      <p style="color: #666; font-size: 16px; margin: 20px 0 10px;">已順利完成</p>
+                      
+                      <!-- 活動名稱 -->
+                      <h2 style="font-size: 24px; color: ${colors.primary}; margin: 0 0 25px; font-weight: bold;">
+                        「${event.title}」
                       </h2>
-                      <p style="color: #666; font-size: 18px; margin: 10px 0 0;">研 習 證 書</p>
+                      
+                      <!-- 活動資訊區塊 -->
+                      <table style="margin: 0 auto; border-collapse: collapse; background: #f8fafc; border-radius: 10px; overflow: hidden;">
+                        <tr>
+                          <td style="padding: 12px 20px; color: #666; border-bottom: 1px solid #e2e8f0;">📅 日期</td>
+                          <td style="padding: 12px 20px; color: #333; font-weight: bold; border-bottom: 1px solid #e2e8f0;">${event.date}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding: 12px 20px; color: #666; border-bottom: 1px solid #e2e8f0;">⏰ 時間</td>
+                          <td style="padding: 12px 20px; color: #333; font-weight: bold; border-bottom: 1px solid #e2e8f0;">${event.time}${event.endTime ? ' - ' + event.endTime : ''}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding: 12px 20px; color: #666; border-bottom: 1px solid #e2e8f0;">📍 地點</td>
+                          <td style="padding: 12px 20px; color: #333; font-weight: bold; border-bottom: 1px solid #e2e8f0;">${event.location}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding: 12px 20px; color: #666;">👨‍🏫 講師</td>
+                          <td style="padding: 12px 20px; color: #333; font-weight: bold;">${event.instructorName || '專業講師'}</td>
+                        </tr>
+                      </table>
+                      
+                      <!-- 證書編號與日期 -->
+                      <table style="width: 100%; margin-top: 35px; border-top: 2px solid #e2e8f0; padding-top: 20px;">
+                        <tr>
+                          <td style="text-align: left; width: 33%;">
+                            <p style="color: #888; font-size: 11px; margin: 0;">證書編號</p>
+                            <p style="color: #333; font-size: 12px; margin: 5px 0 0; font-family: 'Courier New', monospace;">${certNumber}</p>
+                          </td>
+                          <td style="text-align: center; width: 34%;">
+                            <div style="width: 70px; height: 70px; border: 3px solid ${colors.accent}; border-radius: 50%; margin: 0 auto; line-height: 64px;">
+                              <span style="color: ${colors.accent}; font-size: 10px; font-weight: bold;">✓ VERIFIED</span>
+                            </div>
+                          </td>
+                          <td style="text-align: right; width: 33%;">
+                            <p style="color: #888; font-size: 11px; margin: 0;">發證日期</p>
+                            <p style="color: #333; font-size: 12px; margin: 5px 0 0;">${issueDate}</p>
+                          </td>
+                        </tr>
+                      </table>
+                      
                     </div>
-                    
-                    <!-- 授予說明 -->
-                    <p style="color: #555; font-size: 16px; margin: 0 0 15px;">茲證明</p>
-                    
-                    <!-- 學員姓名 -->
-                    <h1 style="font-size: 42px; color: #1a1a2e; margin: 0 0 15px; font-weight: bold; border-bottom: 3px solid #c9a227; display: inline-block; padding: 0 30px 10px;">
-                      ${reg.name}
-                    </h1>
-                    
-                    <!-- 完成說明 -->
-                    <p style="color: #555; font-size: 16px; margin: 25px 0 10px;">已順利完成</p>
-                    
-                    <!-- 活動名稱 -->
-                    <h2 style="font-size: 26px; color: #667eea; margin: 0 0 30px; font-weight: bold;">
-                      「${event.title}」
-                    </h2>
-                    
-                    <!-- 活動資訊 -->
-                    <div style="background: #f8fafc; border-radius: 10px; padding: 20px; margin: 20px auto; max-width: 400px; text-align: left;">
-                      <p style="margin: 0 0 8px; color: #444;">
-                        <span style="color: #888; width: 80px; display: inline-block;">📅 日期</span>
-                        <strong>${event.date}</strong>
-                      </p>
-                      <p style="margin: 0 0 8px; color: #444;">
-                        <span style="color: #888; width: 80px; display: inline-block;">⏰ 時間</span>
-                        <strong>${event.time}${event.endTime ? ' - ' + event.endTime : ''}</strong>
-                      </p>
-                      <p style="margin: 0 0 8px; color: #444;">
-                        <span style="color: #888; width: 80px; display: inline-block;">📍 地點</span>
-                        <strong>${event.location}</strong>
-                      </p>
-                      <p style="margin: 0; color: #444;">
-                        <span style="color: #888; width: 80px; display: inline-block;">👨‍🏫 講師</span>
-                        <strong>${event.instructorName || '專業講師'}</strong>
-                      </p>
-                    </div>
-                    
-                    <!-- 證書編號與日期 -->
-                    <div style="display: flex; justify-content: space-between; margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd;">
-                      <div style="text-align: left;">
-                        <p style="color: #888; font-size: 12px; margin: 0;">證書編號</p>
-                        <p style="color: #333; font-size: 14px; margin: 5px 0 0; font-family: monospace;">${certNumber}</p>
-                      </div>
-                      <div style="text-align: center;">
-                        <div style="width: 80px; height: 80px; border: 3px solid #c9a227; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto;">
-                          <span style="color: #c9a227; font-size: 11px; font-weight: bold;">VERIFIED</span>
-                        </div>
-                      </div>
-                      <div style="text-align: right;">
-                        <p style="color: #888; font-size: 12px; margin: 0;">發證日期</p>
-                        <p style="color: #333; font-size: 14px; margin: 5px 0 0;">${issueDate}</p>
-                      </div>
-                    </div>
-                    
                   </div>
+                  
                 </div>
                 <!-- ========== 證書結束 ========== -->
                 
                 <!-- 底部說明 -->
-                <div style="text-align: center; color: #888; font-size: 13px;">
-                  <p>此證書由 ${orgName} 自動發送</p>
-                  <p>如有任何問題，請聯繫主辦單位</p>
+                <div style="text-align: center; color: #64748b; font-size: 13px; padding: 10px;">
+                  <p style="margin: 0 0 5px;">此證書由 ${orgName} 自動發送</p>
+                  <p style="margin: 0;">如有任何問題，請聯繫主辦單位</p>
                 </div>
                 
               </div>
@@ -2813,7 +2843,7 @@ app.post('/api/certificate/send-all', async (req, res) => {
         }
         
         sent++;
-        console.log(`[證書發送] ✓ ${reg.email} (${certNumber})`);
+        console.log(`[證書發送] ✓ ${reg.email} (${certNumber}) [${styleInfo.style}]`);
       } catch (e) {
         console.error(`[證書發送] ✗ ${reg.email}:`, e.message);
         failed.push({ email: reg.email, error: e.message });
