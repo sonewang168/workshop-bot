@@ -229,6 +229,7 @@ let memoryData = {
   tempPosters: {},
   showcase: [],
   schedules: [],
+  lineBindings: [],  // 學員 LINE 綁定資料 { lineUserId, email, name, bindAt }
   settings: {}
 };
 
@@ -346,6 +347,79 @@ async function updateRegistration(regId, updates) {
   } catch (e) {
     console.error('updateRegistration error:', e.message);
   }
+}
+
+// ==================== LINE 綁定功能 ====================
+async function getLineBindings() {
+  if (!useFirebase) return memoryData.lineBindings || [];
+  try {
+    const snapshot = await db.collection('lineBindings').get();
+    if (snapshot.empty) return [];
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  } catch (e) {
+    console.error('getLineBindings error:', e.message);
+    return [];
+  }
+}
+
+async function addLineBinding(binding) {
+  const newBinding = {
+    ...binding,
+    bindAt: new Date().toISOString()
+  };
+  
+  if (!useFirebase) {
+    // 檢查是否已綁定
+    const existing = memoryData.lineBindings.find(b => b.lineUserId === binding.lineUserId);
+    if (existing) {
+      // 更新現有綁定
+      const idx = memoryData.lineBindings.findIndex(b => b.lineUserId === binding.lineUserId);
+      memoryData.lineBindings[idx] = { ...existing, ...newBinding };
+      return memoryData.lineBindings[idx];
+    }
+    newBinding.id = Date.now().toString();
+    memoryData.lineBindings.push(newBinding);
+    return newBinding;
+  }
+  
+  try {
+    // 檢查是否已綁定
+    const snapshot = await db.collection('lineBindings').where('lineUserId', '==', binding.lineUserId).get();
+    if (!snapshot.empty) {
+      // 更新現有綁定
+      const docId = snapshot.docs[0].id;
+      await db.collection('lineBindings').doc(docId).update(newBinding);
+      return { id: docId, ...newBinding };
+    }
+    const docRef = await db.collection('lineBindings').add(newBinding);
+    return { id: docRef.id, ...newBinding };
+  } catch (e) {
+    console.error('addLineBinding error:', e.message);
+    return null;
+  }
+}
+
+async function removeLineBinding(lineUserId) {
+  if (!useFirebase) {
+    memoryData.lineBindings = memoryData.lineBindings.filter(b => b.lineUserId !== lineUserId);
+    return true;
+  }
+  try {
+    const snapshot = await db.collection('lineBindings').where('lineUserId', '==', lineUserId).get();
+    if (!snapshot.empty) {
+      await db.collection('lineBindings').doc(snapshot.docs[0].id).delete();
+    }
+    return true;
+  } catch (e) {
+    console.error('removeLineBinding error:', e.message);
+    return false;
+  }
+}
+
+async function getLineUserIdByEmail(email) {
+  const bindings = await getLineBindings();
+  const binding = bindings.find(b => b.email.toLowerCase() === email.toLowerCase());
+  return binding?.lineUserId || null;
 }
 
 // ==================== AI API（支援 OpenAI + Gemini）====================
@@ -560,8 +634,163 @@ async function handleMessage(event) {
   const userId = event.source.userId;
   const text = event.message.text?.trim() || '';
   
+  // 學員專用指令（不需要管理員權限）
+  if (text.startsWith('綁定 ') || text.startsWith('綁定')) {
+    const email = text.replace('綁定', '').trim();
+    if (!email || !email.includes('@')) {
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: '❌ 請輸入正確格式：\n綁定 您的Email\n\n範例：綁定 example@gmail.com' }]
+      });
+    }
+    
+    // 檢查是否有此 Email 的報名
+    const regs = await getRegistrations();
+    const found = regs.find(r => r.email.toLowerCase() === email.toLowerCase());
+    
+    if (!found) {
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `❌ 找不到 ${email} 的報名資料\n\n請確認您輸入的是報名時使用的 Email` }]
+      });
+    }
+    
+    // 綁定 LINE ID
+    await addLineBinding({
+      lineUserId: userId,
+      email: email,
+      name: found.name
+    });
+    
+    return client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{
+        type: 'flex',
+        altText: '綁定成功！',
+        contents: {
+          type: 'bubble',
+          header: { type: 'box', layout: 'vertical', contents: [
+            { type: 'text', text: '✅ 綁定成功！', weight: 'bold', color: '#ffffff', size: 'lg' }
+          ], backgroundColor: '#10b981', paddingAll: '20px' },
+          body: { type: 'box', layout: 'vertical', contents: [
+            { type: 'text', text: `👤 ${found.name}`, weight: 'bold', size: 'md' },
+            { type: 'text', text: `📧 ${email}`, size: 'sm', color: '#666666', margin: 'sm' },
+            { type: 'separator', margin: 'lg' },
+            { type: 'text', text: '您將會收到：', weight: 'bold', size: 'sm', margin: 'lg', color: '#6366f1' },
+            { type: 'text', text: '• 活動提醒通知', size: 'sm', color: '#666666', margin: 'sm' },
+            { type: 'text', text: '• 課前資料通知', size: 'sm', color: '#666666', margin: 'sm' },
+            { type: 'text', text: '• 課後回饋通知', size: 'sm', color: '#666666', margin: 'sm' },
+            { type: 'separator', margin: 'lg' },
+            { type: 'text', text: '輸入「我的活動」查看已報名活動', size: 'xs', color: '#888888', margin: 'lg', align: 'center' }
+          ], paddingAll: '20px' }
+        }
+      }]
+    });
+  }
+  
+  if (text === '解除綁定' || text === '取消綁定') {
+    await removeLineBinding(userId);
+    return client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{ type: 'text', text: '✅ 已解除 LINE 綁定\n\n您將不再收到活動通知' }]
+    });
+  }
+  
+  if (text === '我的活動' || text === '我的報名') {
+    const bindings = await getLineBindings();
+    const binding = bindings.find(b => b.lineUserId === userId);
+    
+    if (!binding) {
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: '❌ 您尚未綁定 Email\n\n請輸入：綁定 您的Email' }]
+      });
+    }
+    
+    const regs = await getRegistrations();
+    const events = await getEvents();
+    const myRegs = regs.filter(r => r.email.toLowerCase() === binding.email.toLowerCase() && r.status === 'confirmed');
+    
+    if (myRegs.length === 0) {
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: '📭 您目前沒有已確認的報名' }]
+      });
+    }
+    
+    const bubbles = myRegs.map(reg => {
+      const ev = events.find(e => e.id === reg.eventId);
+      if (!ev) return null;
+      return {
+        type: 'bubble',
+        header: { type: 'box', layout: 'vertical', contents: [
+          { type: 'text', text: ev.title, weight: 'bold', size: 'md', color: '#ffffff', wrap: true }
+        ], backgroundColor: ev.status === 'active' ? '#10b981' : '#6b7280', paddingAll: '15px' },
+        body: { type: 'box', layout: 'vertical', contents: [
+          { type: 'text', text: `📅 ${ev.date}`, size: 'sm', color: '#333333' },
+          { type: 'text', text: `⏰ ${ev.time}${ev.endTime ? ' - ' + ev.endTime : ''}`, size: 'sm', color: '#666666', margin: 'sm' },
+          { type: 'text', text: `📍 ${ev.location || '待定'}`, size: 'sm', color: '#666666', margin: 'sm' },
+          { type: 'text', text: ev.status === 'active' ? '✅ 進行中' : '🔴 已結束', size: 'xs', color: ev.status === 'active' ? '#10b981' : '#ef4444', margin: 'lg' }
+        ], paddingAll: '15px' }
+      };
+    }).filter(Boolean);
+    
+    return client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{
+        type: 'flex',
+        altText: `我的活動 (${myRegs.length})`,
+        contents: bubbles.length === 1 ? bubbles[0] : { type: 'carousel', contents: bubbles.slice(0, 10) }
+      }]
+    });
+  }
+  
+  if (text === '綁定狀態' || text === '查詢綁定') {
+    const bindings = await getLineBindings();
+    const binding = bindings.find(b => b.lineUserId === userId);
+    
+    if (binding) {
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `✅ 已綁定\n\n👤 ${binding.name}\n📧 ${binding.email}\n📅 綁定時間：${new Date(binding.bindAt).toLocaleString('zh-TW')}` }]
+      });
+    } else {
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: '❌ 尚未綁定\n\n請輸入：綁定 您的Email' }]
+      });
+    }
+  }
+  
+  // 管理員權限檢查（以下指令需要管理員權限）
   if (!isAdmin(userId)) {
-    return client.replyMessage({ replyToken: event.replyToken, messages: [createFlexCard('⚠️ 權限不足', '您不是管理員。\n\nYour ID:\n' + userId, '#ef4444')] });
+    // 非管理員的其他訊息，顯示學員指令說明
+    return client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{
+        type: 'flex',
+        altText: '學員指令說明',
+        contents: {
+          type: 'bubble',
+          header: { type: 'box', layout: 'vertical', contents: [
+            { type: 'text', text: '📖 學員指令', weight: 'bold', color: '#ffffff', size: 'lg' }
+          ], backgroundColor: '#6366f1', paddingAll: '15px' },
+          body: { type: 'box', layout: 'vertical', contents: [
+            { type: 'text', text: '綁定 Email', weight: 'bold', size: 'sm', color: '#6366f1' },
+            { type: 'text', text: '綁定您的報名 Email 以接收通知', size: 'xs', color: '#666666', margin: 'sm' },
+            { type: 'separator', margin: 'md' },
+            { type: 'text', text: '我的活動', weight: 'bold', size: 'sm', color: '#6366f1', margin: 'md' },
+            { type: 'text', text: '查看已報名的活動', size: 'xs', color: '#666666', margin: 'sm' },
+            { type: 'separator', margin: 'md' },
+            { type: 'text', text: '綁定狀態', weight: 'bold', size: 'sm', color: '#6366f1', margin: 'md' },
+            { type: 'text', text: '查看目前的綁定狀態', size: 'xs', color: '#666666', margin: 'sm' },
+            { type: 'separator', margin: 'md' },
+            { type: 'text', text: '解除綁定', weight: 'bold', size: 'sm', color: '#6366f1', margin: 'md' },
+            { type: 'text', text: '解除 Email 綁定', size: 'xs', color: '#666666', margin: 'sm' }
+          ], paddingAll: '15px' }
+        }
+      }]
+    });
   }
 
   let messages = [];
@@ -1194,7 +1423,38 @@ app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
         // 處理按鈕點擊事件
         await handlePostback(event);
       } else if (event.type === 'follow') {
-        await client.replyMessage({ replyToken: event.replyToken, messages: [{ type: 'text', text: `歡迎使用工作坊管理系統！🎓\n\n輸入「說明」查看指令`, quickReply: createQuickReply() }] });
+        const userId = event.source.userId;
+        const isAdmin = ADMIN_IDS.includes(userId);
+        
+        if (isAdmin) {
+          await client.replyMessage({ replyToken: event.replyToken, messages: [{ type: 'text', text: `歡迎使用工作坊管理系統！🎓\n\n您是管理員，輸入「說明」查看指令`, quickReply: createQuickReply() }] });
+        } else {
+          // 學員加入，顯示綁定說明
+          await client.replyMessage({
+            replyToken: event.replyToken,
+            messages: [{
+              type: 'flex',
+              altText: '歡迎加入！請綁定您的 Email',
+              contents: {
+                type: 'bubble',
+                header: { type: 'box', layout: 'vertical', contents: [
+                  { type: 'text', text: '🎓 歡迎加入！', weight: 'bold', color: '#ffffff', size: 'lg' }
+                ], backgroundColor: '#6366f1', paddingAll: '20px' },
+                body: { type: 'box', layout: 'vertical', contents: [
+                  { type: 'text', text: '請綁定您的報名 Email，即可收到活動通知！', wrap: true, size: 'md', color: '#333333' },
+                  { type: 'separator', margin: 'lg' },
+                  { type: 'text', text: '綁定方式', weight: 'bold', size: 'md', margin: 'lg', color: '#6366f1' },
+                  { type: 'text', text: '輸入：綁定 您的Email', size: 'sm', color: '#666666', margin: 'md' },
+                  { type: 'text', text: '範例：綁定 example@gmail.com', size: 'xs', color: '#888888', margin: 'sm' },
+                  { type: 'separator', margin: 'lg' },
+                  { type: 'text', text: '其他指令', weight: 'bold', size: 'md', margin: 'lg', color: '#6366f1' },
+                  { type: 'text', text: '• 我的活動 - 查看已報名活動', size: 'sm', color: '#666666', margin: 'md' },
+                  { type: 'text', text: '• 解除綁定 - 解除 Email 綁定', size: 'sm', color: '#666666', margin: 'sm' }
+                ], paddingAll: '20px' }
+              }
+            }]
+          });
+        }
       }
     }));
     res.status(200).end();
@@ -1406,6 +1666,34 @@ app.delete('/api/events/:id', async (req, res) => {
 });
 app.get('/api/registrations', async (req, res) => { try { res.json(await getRegistrations(req.query.eventId)); } catch (e) { res.status(500).json({ error: e.message }); } });
 app.post('/api/registrations', async (req, res) => { try { res.json(await addRegistration(req.body)); } catch (e) { res.status(500).json({ error: e.message }); } });
+
+// LINE 綁定 API
+app.get('/api/line-bindings', async (req, res) => { 
+  try { 
+    res.json(await getLineBindings()); 
+  } catch (e) { 
+    res.status(500).json({ error: e.message }); 
+  } 
+});
+
+app.get('/api/line-bindings/stats', async (req, res) => {
+  try {
+    const bindings = await getLineBindings();
+    const regs = await getRegistrations();
+    const confirmedEmails = [...new Set(regs.filter(r => r.status === 'confirmed').map(r => r.email.toLowerCase()))];
+    const boundEmails = bindings.map(b => b.email.toLowerCase());
+    const boundCount = confirmedEmails.filter(e => boundEmails.includes(e)).length;
+    
+    res.json({
+      totalBindings: bindings.length,
+      confirmedStudents: confirmedEmails.length,
+      boundStudents: boundCount,
+      unboundStudents: confirmedEmails.length - boundCount
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 app.put('/api/registrations/:id', async (req, res) => {
   try {
@@ -1745,7 +2033,49 @@ app.post('/api/send-notification', async (req, res) => {
     }
     
     console.log(`[通知發送] 完成: 成功 ${sent}/${confirmedRegs.length}, 失敗 ${failed.length}`);
-    res.json({ success: true, sent, total: confirmedRegs.length, failed });
+    
+    // 同時發送 LINE 通知給已綁定的學員
+    let lineSent = 0;
+    const bindings = await getLineBindings();
+    
+    for (const reg of confirmedRegs) {
+      const binding = bindings.find(b => b.email.toLowerCase() === reg.email.toLowerCase());
+      if (binding) {
+        try {
+          await client.pushMessage({
+            to: binding.lineUserId,
+            messages: [{
+              type: 'flex',
+              altText: `${typeLabels[type] || '📨 通知'} - ${event.title}`,
+              contents: {
+                type: 'bubble',
+                header: { type: 'box', layout: 'vertical', contents: [
+                  { type: 'text', text: typeLabels[type] || '📨 通知', weight: 'bold', color: '#ffffff', size: 'lg' },
+                  { type: 'text', text: event.title, size: 'sm', color: '#ffffffcc', wrap: true, margin: 'sm' }
+                ], backgroundColor: type === 'reminder' ? '#f59e0b' : type === 'start' ? '#10b981' : '#6366f1', paddingAll: '20px' },
+                body: { type: 'box', layout: 'vertical', contents: [
+                  { type: 'text', text: `${reg.name} 您好`, weight: 'bold', size: 'md' },
+                  { type: 'text', text: customMessage.slice(0, 300), wrap: true, size: 'sm', color: '#333333', margin: 'md' },
+                  { type: 'separator', margin: 'lg' },
+                  { type: 'box', layout: 'vertical', contents: [
+                    { type: 'text', text: `📅 ${event.date}`, size: 'sm', color: '#666666' },
+                    { type: 'text', text: `⏰ ${event.time}${event.endTime ? ' - ' + event.endTime : ''}`, size: 'sm', color: '#666666', margin: 'sm' },
+                    { type: 'text', text: `📍 ${event.location || '待定'}`, size: 'sm', color: '#666666', margin: 'sm' }
+                  ], margin: 'lg', backgroundColor: '#f0f4ff', paddingAll: '15px', cornerRadius: '10px' }
+                ], paddingAll: '20px' }
+              }
+            }]
+          });
+          lineSent++;
+          console.log(`[LINE 通知] ✓ 成功: ${reg.email} -> ${binding.lineUserId}`);
+        } catch (e) {
+          console.error(`[LINE 通知] ✗ 失敗: ${reg.email}`, e.message);
+        }
+      }
+    }
+    
+    console.log(`[LINE 通知] 完成: ${lineSent} 人`);
+    res.json({ success: true, sent, total: confirmedRegs.length, failed, lineSent });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

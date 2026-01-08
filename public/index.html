@@ -1417,10 +1417,11 @@ function NotificationsPage({ events, registrations, showToast }) {
       console.log('[DEBUG] API response:', data);
       if (data.success) {
         if (data.failed && data.failed.length > 0) {
-          showToast(`已發送 ${data.sent}/${data.total} 封，${data.failed.length} 封失敗`, 'warning');
+          showToast(`Email ${data.sent}/${data.total} 封，LINE ${data.lineSent || 0} 人，${data.failed.length} 封失敗`, 'warning');
           console.log('發送失敗的 Email:', data.failed);
         } else {
-          showToast(`已發送 ${data.sent} 封通知！`, 'success');
+          const lineMsg = data.lineSent > 0 ? `，LINE ${data.lineSent} 人` : '';
+          showToast(`已發送 ${data.sent} 封 Email${lineMsg}！`, 'success');
         }
       } else {
         showToast(data.error || '發送失敗', 'error');
