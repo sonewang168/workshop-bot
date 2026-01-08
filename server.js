@@ -2530,9 +2530,24 @@ async function generateCertificateBackground(eventTitle, eventDescription) {
     const data = await response.json();
     
     if (data.data && data.data[0]) {
-      const imageUrl = data.data[0].url || data.data[0].b64_json;
+      let imageData = data.data[0].url || data.data[0].b64_json;
+      
+      // 如果是 URL，下載圖片並轉成 Base64
+      if (imageData && imageData.startsWith('http')) {
+        try {
+          console.log('[AI 證書] 下載圖片轉 Base64...');
+          const imgResponse = await fetch(imageData);
+          const arrayBuffer = await imgResponse.arrayBuffer();
+          const base64 = Buffer.from(arrayBuffer).toString('base64');
+          imageData = `data:image/png;base64,${base64}`;
+          console.log('[AI 證書] ✓ Base64 轉換成功');
+        } catch (e) {
+          console.error('[AI 證書] Base64 轉換失敗:', e.message);
+        }
+      }
+      
       console.log('[AI 證書] ✓ 背景生成成功');
-      return { url: imageUrl, style: styleInfo };
+      return { url: imageData, style: styleInfo };
     } else {
       console.error('[AI 證書] 生成失敗:', data);
       return null;
@@ -2731,7 +2746,11 @@ app.post('/api/certificate/send-all', async (req, res) => {
         };
         
         const colors = styleColors[styleInfo.style] || styleColors['典雅專業'];
-        const isDark = ['科技風', '正式商務', '表演藝術'].includes(styleInfo.style);
+        
+        // 決定背景：優先使用 AI 背景圖，否則用漸層
+        const bgStyle = bgUrl 
+          ? `background-image: url('${bgUrl}'); background-size: cover; background-position: center;`
+          : `background: ${colors.bg};`;
         
         // 直接在郵件中嵌入精美證書
         if (resend) {
@@ -2749,83 +2768,81 @@ app.post('/api/certificate/send-all', async (req, res) => {
                 </div>
                 
                 <!-- ========== 證書本體 ========== -->
-                <div style="background: ${colors.bg}; border-radius: 20px; padding: 20px; margin-bottom: 30px; box-shadow: 0 10px 40px rgba(0,0,0,0.2);">
+                <div style="${bgStyle} border-radius: 20px; padding: 20px; margin-bottom: 30px; box-shadow: 0 10px 40px rgba(0,0,0,0.2);">
                   
-                  <!-- 裝飾邊框 -->
-                  <div style="border: 4px solid ${colors.border}; border-radius: 15px; padding: 8px;">
-                    <div style="border: 2px solid ${colors.border}; border-radius: 10px; padding: 40px; background: ${isDark ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.9)'}; text-align: center;">
+                  <!-- 內容區（半透明白底） -->
+                  <div style="background: rgba(255,255,255,0.92); border-radius: 15px; padding: 40px; text-align: center; backdrop-filter: blur(10px);">
                       
-                      <!-- 頂部裝飾 -->
-                      <div style="margin-bottom: 20px;">
-                        <span style="font-size: 40px;">🏆</span>
-                      </div>
-                      
-                      <!-- 證書標題 -->
-                      <div style="border-bottom: 3px double ${colors.accent}; padding-bottom: 20px; margin-bottom: 25px; display: inline-block;">
-                        <h2 style="font-family: 'Times New Roman', Georgia, serif; font-size: 32px; color: ${colors.primary}; margin: 0; letter-spacing: 2px; font-style: italic;">
-                          Certificate of Completion
-                        </h2>
-                        <p style="color: #666; font-size: 20px; margin: 10px 0 0; letter-spacing: 8px;">研 習 證 書</p>
-                      </div>
-                      
-                      <!-- 授予說明 -->
-                      <p style="color: #666; font-size: 16px; margin: 0 0 10px;">茲 證 明</p>
-                      
-                      <!-- 學員姓名 -->
-                      <div style="margin: 20px 0;">
-                        <h1 style="font-size: 38px; color: #1a1a2e; margin: 0; font-weight: bold; display: inline-block; border-bottom: 3px solid ${colors.accent}; padding: 5px 40px 10px;">
-                          ${reg.name}
-                        </h1>
-                      </div>
-                      
-                      <!-- 完成說明 -->
-                      <p style="color: #666; font-size: 16px; margin: 20px 0 10px;">已順利完成</p>
-                      
-                      <!-- 活動名稱 -->
-                      <h2 style="font-size: 24px; color: ${colors.primary}; margin: 0 0 25px; font-weight: bold;">
-                        「${event.title}」
-                      </h2>
-                      
-                      <!-- 活動資訊區塊 -->
-                      <table style="margin: 0 auto; border-collapse: collapse; background: #f8fafc; border-radius: 10px; overflow: hidden;">
-                        <tr>
-                          <td style="padding: 12px 20px; color: #666; border-bottom: 1px solid #e2e8f0;">📅 日期</td>
-                          <td style="padding: 12px 20px; color: #333; font-weight: bold; border-bottom: 1px solid #e2e8f0;">${event.date}</td>
-                        </tr>
-                        <tr>
-                          <td style="padding: 12px 20px; color: #666; border-bottom: 1px solid #e2e8f0;">⏰ 時間</td>
-                          <td style="padding: 12px 20px; color: #333; font-weight: bold; border-bottom: 1px solid #e2e8f0;">${event.time}${event.endTime ? ' - ' + event.endTime : ''}</td>
-                        </tr>
-                        <tr>
-                          <td style="padding: 12px 20px; color: #666; border-bottom: 1px solid #e2e8f0;">📍 地點</td>
-                          <td style="padding: 12px 20px; color: #333; font-weight: bold; border-bottom: 1px solid #e2e8f0;">${event.location}</td>
-                        </tr>
-                        <tr>
-                          <td style="padding: 12px 20px; color: #666;">👨‍🏫 講師</td>
-                          <td style="padding: 12px 20px; color: #333; font-weight: bold;">${event.instructorName || '專業講師'}</td>
-                        </tr>
-                      </table>
-                      
-                      <!-- 證書編號與日期 -->
-                      <table style="width: 100%; margin-top: 35px; border-top: 2px solid #e2e8f0; padding-top: 20px;">
-                        <tr>
-                          <td style="text-align: left; width: 33%;">
-                            <p style="color: #888; font-size: 11px; margin: 0;">證書編號</p>
-                            <p style="color: #333; font-size: 12px; margin: 5px 0 0; font-family: 'Courier New', monospace;">${certNumber}</p>
-                          </td>
-                          <td style="text-align: center; width: 34%;">
-                            <div style="width: 70px; height: 70px; border: 3px solid ${colors.accent}; border-radius: 50%; margin: 0 auto; line-height: 64px;">
-                              <span style="color: ${colors.accent}; font-size: 10px; font-weight: bold;">✓ VERIFIED</span>
-                            </div>
-                          </td>
-                          <td style="text-align: right; width: 33%;">
-                            <p style="color: #888; font-size: 11px; margin: 0;">發證日期</p>
-                            <p style="color: #333; font-size: 12px; margin: 5px 0 0;">${issueDate}</p>
-                          </td>
-                        </tr>
-                      </table>
-                      
+                    <!-- 頂部裝飾 -->
+                    <div style="margin-bottom: 20px;">
+                      <span style="font-size: 40px;">🏆</span>
                     </div>
+                    
+                    <!-- 證書標題 -->
+                    <div style="border-bottom: 3px double ${colors.accent}; padding-bottom: 20px; margin-bottom: 25px; display: inline-block;">
+                      <h2 style="font-family: 'Times New Roman', Georgia, serif; font-size: 32px; color: ${colors.primary}; margin: 0; letter-spacing: 2px; font-style: italic;">
+                        Certificate of Completion
+                      </h2>
+                      <p style="color: #666; font-size: 20px; margin: 10px 0 0; letter-spacing: 8px;">研 習 證 書</p>
+                    </div>
+                    
+                    <!-- 授予說明 -->
+                    <p style="color: #666; font-size: 16px; margin: 0 0 10px;">茲 證 明</p>
+                    
+                    <!-- 學員姓名 -->
+                    <div style="margin: 20px 0;">
+                      <h1 style="font-size: 38px; color: #1a1a2e; margin: 0; font-weight: bold; display: inline-block; border-bottom: 3px solid ${colors.accent}; padding: 5px 40px 10px;">
+                        ${reg.name}
+                      </h1>
+                    </div>
+                    
+                    <!-- 完成說明 -->
+                    <p style="color: #666; font-size: 16px; margin: 20px 0 10px;">已順利完成</p>
+                    
+                    <!-- 活動名稱 -->
+                    <h2 style="font-size: 24px; color: ${colors.primary}; margin: 0 0 25px; font-weight: bold;">
+                      「${event.title}」
+                    </h2>
+                    
+                    <!-- 活動資訊區塊 -->
+                    <table style="margin: 0 auto; border-collapse: collapse; background: rgba(248,250,252,0.9); border-radius: 10px; overflow: hidden;">
+                      <tr>
+                        <td style="padding: 12px 20px; color: #666; border-bottom: 1px solid #e2e8f0;">📅 日期</td>
+                        <td style="padding: 12px 20px; color: #333; font-weight: bold; border-bottom: 1px solid #e2e8f0;">${event.date}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 12px 20px; color: #666; border-bottom: 1px solid #e2e8f0;">⏰ 時間</td>
+                        <td style="padding: 12px 20px; color: #333; font-weight: bold; border-bottom: 1px solid #e2e8f0;">${event.time}${event.endTime ? ' - ' + event.endTime : ''}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 12px 20px; color: #666; border-bottom: 1px solid #e2e8f0;">📍 地點</td>
+                        <td style="padding: 12px 20px; color: #333; font-weight: bold; border-bottom: 1px solid #e2e8f0;">${event.location}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 12px 20px; color: #666;">👨‍🏫 講師</td>
+                        <td style="padding: 12px 20px; color: #333; font-weight: bold;">${event.instructorName || '專業講師'}</td>
+                      </tr>
+                    </table>
+                    
+                    <!-- 證書編號與日期 -->
+                    <table style="width: 100%; margin-top: 35px; border-top: 2px solid #e2e8f0; padding-top: 20px;">
+                      <tr>
+                        <td style="text-align: left; width: 33%;">
+                          <p style="color: #888; font-size: 11px; margin: 0;">證書編號</p>
+                          <p style="color: #333; font-size: 12px; margin: 5px 0 0; font-family: 'Courier New', monospace;">${certNumber}</p>
+                        </td>
+                        <td style="text-align: center; width: 34%;">
+                          <div style="width: 70px; height: 70px; border: 3px solid ${colors.accent}; border-radius: 50%; margin: 0 auto; line-height: 64px;">
+                            <span style="color: ${colors.accent}; font-size: 10px; font-weight: bold;">✓ VERIFIED</span>
+                          </div>
+                        </td>
+                        <td style="text-align: right; width: 33%;">
+                          <p style="color: #888; font-size: 11px; margin: 0;">發證日期</p>
+                          <p style="color: #333; font-size: 12px; margin: 5px 0 0;">${issueDate}</p>
+                        </td>
+                      </tr>
+                    </table>
+                    
                   </div>
                   
                 </div>
@@ -2843,7 +2860,7 @@ app.post('/api/certificate/send-all', async (req, res) => {
         }
         
         sent++;
-        console.log(`[證書發送] ✓ ${reg.email} (${certNumber}) [${styleInfo.style}]`);
+        console.log(`[證書發送] ✓ ${reg.email} (${certNumber}) [${styleInfo.style}]${bgUrl ? ' [AI背景]' : ''}`);
       } catch (e) {
         console.error(`[證書發送] ✗ ${reg.email}:`, e.message);
         failed.push({ email: reg.email, error: e.message });
