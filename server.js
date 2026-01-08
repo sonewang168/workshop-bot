@@ -2780,135 +2780,154 @@ app.post('/api/certificate/send-all', async (req, res) => {
                   <p style="margin: 10px 0 0; opacity: 0.9;">您的研習證書已準備完成（${styleInfo.style}）</p>
                 </div>
                 
-                <!-- ========== 超精美證書 ========== -->
-                <div style="background: linear-gradient(145deg, #f5e6d3 0%, #fff8f0 25%, #fffef8 50%, #fff8f0 75%, #f5e6d3 100%); border-radius: 15px; padding: 8px; margin-bottom: 30px; box-shadow: 0 15px 50px rgba(0,0,0,0.2);">
-                  
-                  <!-- 四角裝飾邊框 -->
-                  <div style="background: linear-gradient(135deg, #d4af37, #f4d03f, #d4af37); padding: 4px; border-radius: 12px;">
-                    <div style="background: linear-gradient(145deg, #fffef8, #fff9e6); border-radius: 10px; padding: 6px;">
-                      <div style="border: 2px solid #d4af37; border-radius: 8px; padding: 35px 25px; position: relative; background: #fffffe;">
-                        
-                        <!-- 四角裝飾圖案 -->
-                        <div style="position: absolute; top: 10px; left: 10px; font-size: 24px; opacity: 0.6;">❧</div>
-                        <div style="position: absolute; top: 10px; right: 10px; font-size: 24px; opacity: 0.6; transform: scaleX(-1);">❧</div>
-                        <div style="position: absolute; bottom: 10px; left: 10px; font-size: 24px; opacity: 0.6; transform: scaleY(-1);">❧</div>
-                        <div style="position: absolute; bottom: 10px; right: 10px; font-size: 24px; opacity: 0.6; transform: scale(-1);">❧</div>
-                        
-                        <div style="text-align: center;">
-                          
-                          <!-- 頂部裝飾 -->
-                          <div style="margin-bottom: 15px;">
-                            <span style="color: #d4af37; font-size: 20px;">✦</span>
-                            <span style="color: #d4af37; font-size: 28px; margin: 0 8px;">★</span>
-                            <span style="color: #d4af37; font-size: 36px; margin: 0 5px;">🏆</span>
-                            <span style="color: #d4af37; font-size: 28px; margin: 0 8px;">★</span>
-                            <span style="color: #d4af37; font-size: 20px;">✦</span>
-                          </div>
-                          
-                          <!-- 證書標題 -->
-                          <h2 style="font-family: 'Times New Roman', Georgia, serif; font-size: 34px; color: #8B4513; margin: 0 0 5px; font-style: italic; text-shadow: 1px 1px 2px rgba(0,0,0,0.1);">
-                            Certificate of Completion
-                          </h2>
-                          
-                          <!-- 中文標題 -->
-                          <div style="display: flex; align-items: center; justify-content: center; margin: 10px 0 20px;">
-                            <div style="flex: 1; max-width: 80px; height: 1px; background: linear-gradient(to right, transparent, #d4af37);"></div>
-                            <span style="color: #8B4513; font-size: 20px; margin: 0 15px; letter-spacing: 8px; font-weight: bold;">研習證書</span>
-                            <div style="flex: 1; max-width: 80px; height: 1px; background: linear-gradient(to left, transparent, #d4af37);"></div>
-                          </div>
-                          
-                          <!-- 華麗分隔線 -->
-                          <div style="margin: 20px auto; width: 250px;">
-                            <div style="display: flex; align-items: center; justify-content: center;">
-                              <div style="flex: 1; height: 1px; background: #d4af37;"></div>
-                              <span style="color: #d4af37; margin: 0 10px;">◆</span>
-                              <div style="flex: 1; height: 1px; background: #d4af37;"></div>
-                            </div>
-                          </div>
-                          
-                          <!-- 授予說明 -->
-                          <p style="color: #666; font-size: 14px; margin: 20px 0 8px;">茲 證 明</p>
-                          
-                          <!-- 學員姓名 - 超華麗 -->
-                          <div style="margin: 15px 0 20px; padding: 15px 0;">
-                            <div style="display: inline-block; position: relative; padding: 0 60px;">
-                              <span style="position: absolute; left: 0; top: 50%; transform: translateY(-50%); color: #d4af37; font-size: 24px;">『</span>
-                              <h1 style="font-size: 42px; color: #1a1a2e; margin: 0; font-weight: bold; font-family: 'Microsoft JhengHei', sans-serif;">
-                                ${reg.name}
-                              </h1>
-                              <span style="position: absolute; right: 0; top: 50%; transform: translateY(-50%); color: #d4af37; font-size: 24px;">』</span>
-                            </div>
-                            <div style="width: 200px; height: 3px; background: linear-gradient(to right, transparent, #d4af37, transparent); margin: 10px auto 0;"></div>
-                          </div>
-                          
-                          <!-- 完成說明 -->
-                          <p style="color: #666; font-size: 14px; margin: 0 0 8px;">已順利完成以下研習課程</p>
-                          
-                          <!-- 活動名稱 - 突出顯示 -->
-                          <div style="background: linear-gradient(135deg, ${colors.primary}15, ${colors.secondary}15); border-radius: 10px; padding: 15px 20px; margin: 15px auto 20px; max-width: 400px; border: 1px solid ${colors.primary}30;">
-                            <h3 style="font-size: 22px; color: ${colors.primary}; margin: 0; font-weight: bold;">
-                              「${event.title}」
-                            </h3>
-                          </div>
-                          
-                          <!-- 活動資訊 - 精美卡片 -->
-                          <table style="margin: 20px auto; border-collapse: separate; border-spacing: 0; width: auto; background: #fafafa; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
-                            <tr>
-                              <td style="padding: 14px 20px; color: #888; background: #f5f5f5; border-right: 1px solid #eee;">📅 日期</td>
-                              <td style="padding: 14px 25px; color: #333; font-weight: 600;">${event.date}</td>
-                            </tr>
-                            <tr>
-                              <td style="padding: 14px 20px; color: #888; background: #f5f5f5; border-right: 1px solid #eee; border-top: 1px solid #eee;">⏰ 時間</td>
-                              <td style="padding: 14px 25px; color: #333; font-weight: 600; border-top: 1px solid #eee;">${event.time}${event.endTime ? ' - ' + event.endTime : ''}</td>
-                            </tr>
-                            <tr>
-                              <td style="padding: 14px 20px; color: #888; background: #f5f5f5; border-right: 1px solid #eee; border-top: 1px solid #eee;">📍 地點</td>
-                              <td style="padding: 14px 25px; color: #333; font-weight: 600; border-top: 1px solid #eee;">${event.location}</td>
-                            </tr>
-                            <tr>
-                              <td style="padding: 14px 20px; color: #888; background: #f5f5f5; border-right: 1px solid #eee; border-top: 1px solid #eee;">👨‍🏫 講師</td>
-                              <td style="padding: 14px 25px; color: #333; font-weight: 600; border-top: 1px solid #eee;">${event.instructorName || '專業講師'}</td>
-                            </tr>
-                          </table>
-                          
-                          <!-- 華麗分隔線 -->
-                          <div style="margin: 25px auto; width: 300px;">
-                            <div style="display: flex; align-items: center; justify-content: center;">
-                              <span style="color: #d4af37;">✦</span>
-                              <div style="flex: 1; height: 1px; background: linear-gradient(to right, #d4af37, transparent); margin: 0 8px;"></div>
-                              <span style="color: #d4af37; font-size: 18px;">❖</span>
-                              <div style="flex: 1; height: 1px; background: linear-gradient(to left, #d4af37, transparent); margin: 0 8px;"></div>
-                              <span style="color: #d4af37;">✦</span>
-                            </div>
-                          </div>
-                          
-                          <!-- 證書編號與日期 -->
-                          <table style="width: 100%; max-width: 450px; margin: 0 auto;">
-                            <tr>
-                              <td style="text-align: left; width: 35%; vertical-align: top;">
-                                <p style="color: #aaa; font-size: 10px; margin: 0 0 4px; text-transform: uppercase; letter-spacing: 1px;">Certificate No.</p>
-                                <p style="color: #666; font-size: 11px; margin: 0; font-family: 'Courier New', monospace;">${certNumber}</p>
-                              </td>
-                              <td style="text-align: center; width: 30%;">
-                                <div style="width: 65px; height: 65px; border: 3px double #d4af37; border-radius: 50%; margin: 0 auto; background: linear-gradient(135deg, #fff9e6, #fffef8);">
-                                  <div style="width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                                    <span style="color: #d4af37; font-size: 16px;">✓</span>
-                                    <span style="color: #d4af37; font-size: 8px; font-weight: bold; letter-spacing: 1px;">VERIFIED</span>
-                                  </div>
-                                </div>
-                              </td>
-                              <td style="text-align: right; width: 35%; vertical-align: top;">
-                                <p style="color: #aaa; font-size: 10px; margin: 0 0 4px; text-transform: uppercase; letter-spacing: 1px;">Issue Date</p>
-                                <p style="color: #666; font-size: 11px; margin: 0;">${issueDate}</p>
-                              </td>
-                            </tr>
-                          </table>
-                          
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <!-- ========== 證書（純 Table 佈局）========== -->
+                <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; margin: 0 auto 30px; border-collapse: collapse;">
+                  <tr>
+                    <td style="background: #d4af37; padding: 8px; border-radius: 12px;">
+                      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
+                        <tr>
+                          <td style="background: #fffef5; padding: 6px; border-radius: 8px;">
+                            <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse; border: 2px solid #d4af37; border-radius: 6px; background: #fffffe;">
+                              <tr>
+                                <td style="padding: 40px 30px; text-align: center;">
+                                  
+                                  <!-- 頂部裝飾 -->
+                                  <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 20px;">
+                                    <tr>
+                                      <td align="center">
+                                        <span style="color: #d4af37; font-size: 18px;">✦</span>
+                                        <span style="color: #d4af37; font-size: 24px; margin: 0 5px;">★</span>
+                                        <span style="font-size: 40px;">🏆</span>
+                                        <span style="color: #d4af37; font-size: 24px; margin: 0 5px;">★</span>
+                                        <span style="color: #d4af37; font-size: 18px;">✦</span>
+                                      </td>
+                                    </tr>
+                                  </table>
+                                  
+                                  <!-- 證書標題 -->
+                                  <h2 style="font-family: Georgia, 'Times New Roman', serif; font-size: 32px; color: #8B4513; margin: 0 0 8px; font-style: italic;">
+                                    Certificate of Completion
+                                  </h2>
+                                  
+                                  <!-- 中文標題 -->
+                                  <table width="280" cellpadding="0" cellspacing="0" style="margin: 15px auto 25px;">
+                                    <tr>
+                                      <td width="60" style="border-bottom: 1px solid #d4af37;"></td>
+                                      <td align="center" style="padding: 0 15px;">
+                                        <span style="color: #8B4513; font-size: 18px; letter-spacing: 6px; font-weight: bold;">研習證書</span>
+                                      </td>
+                                      <td width="60" style="border-bottom: 1px solid #d4af37;"></td>
+                                    </tr>
+                                  </table>
+                                  
+                                  <!-- 分隔線 -->
+                                  <table width="200" cellpadding="0" cellspacing="0" style="margin: 0 auto 25px;">
+                                    <tr>
+                                      <td style="border-bottom: 1px solid #d4af37;"></td>
+                                      <td width="30" align="center"><span style="color: #d4af37;">◆</span></td>
+                                      <td style="border-bottom: 1px solid #d4af37;"></td>
+                                    </tr>
+                                  </table>
+                                  
+                                  <!-- 茲證明 -->
+                                  <p style="color: #888; font-size: 14px; margin: 0 0 15px;">茲 證 明</p>
+                                  
+                                  <!-- 學員姓名 -->
+                                  <table cellpadding="0" cellspacing="0" style="margin: 0 auto 15px;">
+                                    <tr>
+                                      <td style="color: #d4af37; font-size: 28px; padding-right: 10px; vertical-align: middle;">『</td>
+                                      <td>
+                                        <h1 style="font-size: 38px; color: #1a1a2e; margin: 0; font-weight: bold;">
+                                          ${reg.name}
+                                        </h1>
+                                      </td>
+                                      <td style="color: #d4af37; font-size: 28px; padding-left: 10px; vertical-align: middle;">』</td>
+                                    </tr>
+                                  </table>
+                                  
+                                  <!-- 姓名底線 -->
+                                  <table width="180" cellpadding="0" cellspacing="0" style="margin: 0 auto 20px;">
+                                    <tr><td style="border-bottom: 3px solid #d4af37;"></td></tr>
+                                  </table>
+                                  
+                                  <!-- 完成說明 -->
+                                  <p style="color: #888; font-size: 14px; margin: 0 0 15px;">已順利完成以下研習課程</p>
+                                  
+                                  <!-- 活動名稱 -->
+                                  <table cellpadding="0" cellspacing="0" style="margin: 0 auto 25px; background: ${colors.primary}10; border: 1px solid ${colors.primary}30; border-radius: 8px;">
+                                    <tr>
+                                      <td style="padding: 15px 30px;">
+                                        <h3 style="font-size: 22px; color: ${colors.primary}; margin: 0; font-weight: bold;">
+                                          「${event.title}」
+                                        </h3>
+                                      </td>
+                                    </tr>
+                                  </table>
+                                  
+                                  <!-- 活動資訊表格 -->
+                                  <table cellpadding="0" cellspacing="0" style="margin: 0 auto 25px; background: #f8f8f8; border-radius: 8px; border: 1px solid #eee;">
+                                    <tr>
+                                      <td style="padding: 12px 20px; color: #888; background: #f0f0f0; border-right: 1px solid #e5e5e5;">📅 日期</td>
+                                      <td style="padding: 12px 25px; color: #333; font-weight: bold;">${event.date}</td>
+                                    </tr>
+                                    <tr>
+                                      <td style="padding: 12px 20px; color: #888; background: #f0f0f0; border-right: 1px solid #e5e5e5; border-top: 1px solid #e5e5e5;">⏰ 時間</td>
+                                      <td style="padding: 12px 25px; color: #333; font-weight: bold; border-top: 1px solid #e5e5e5;">${event.time}${event.endTime ? ' - ' + event.endTime : ''}</td>
+                                    </tr>
+                                    <tr>
+                                      <td style="padding: 12px 20px; color: #888; background: #f0f0f0; border-right: 1px solid #e5e5e5; border-top: 1px solid #e5e5e5;">📍 地點</td>
+                                      <td style="padding: 12px 25px; color: #333; font-weight: bold; border-top: 1px solid #e5e5e5;">${event.location}</td>
+                                    </tr>
+                                    <tr>
+                                      <td style="padding: 12px 20px; color: #888; background: #f0f0f0; border-right: 1px solid #e5e5e5; border-top: 1px solid #e5e5e5;">👨‍🏫 講師</td>
+                                      <td style="padding: 12px 25px; color: #333; font-weight: bold; border-top: 1px solid #e5e5e5;">${event.instructorName || '專業講師'}</td>
+                                    </tr>
+                                  </table>
+                                  
+                                  <!-- 分隔線 -->
+                                  <table width="250" cellpadding="0" cellspacing="0" style="margin: 0 auto 25px;">
+                                    <tr>
+                                      <td width="20" align="center"><span style="color: #d4af37;">✦</span></td>
+                                      <td style="border-bottom: 1px solid #d4af37;"></td>
+                                      <td width="30" align="center"><span style="color: #d4af37; font-size: 16px;">❖</span></td>
+                                      <td style="border-bottom: 1px solid #d4af37;"></td>
+                                      <td width="20" align="center"><span style="color: #d4af37;">✦</span></td>
+                                    </tr>
+                                  </table>
+                                  
+                                  <!-- 證書編號與日期 -->
+                                  <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 420px; margin: 0 auto;">
+                                    <tr>
+                                      <td width="35%" align="left" valign="top">
+                                        <p style="color: #aaa; font-size: 10px; margin: 0 0 4px; text-transform: uppercase;">Certificate No.</p>
+                                        <p style="color: #666; font-size: 11px; margin: 0; font-family: 'Courier New', monospace;">${certNumber}</p>
+                                      </td>
+                                      <td width="30%" align="center" valign="middle">
+                                        <table cellpadding="0" cellspacing="0" style="margin: 0 auto;">
+                                          <tr>
+                                            <td style="width: 60px; height: 60px; border: 3px double #d4af37; border-radius: 30px; text-align: center; background: #fffef5;">
+                                              <span style="color: #d4af37; font-size: 14px; display: block;">✓</span>
+                                              <span style="color: #d4af37; font-size: 8px; font-weight: bold;">VERIFIED</span>
+                                            </td>
+                                          </tr>
+                                        </table>
+                                      </td>
+                                      <td width="35%" align="right" valign="top">
+                                        <p style="color: #aaa; font-size: 10px; margin: 0 0 4px; text-transform: uppercase;">Issue Date</p>
+                                        <p style="color: #666; font-size: 11px; margin: 0;">${issueDate}</p>
+                                      </td>
+                                    </tr>
+                                  </table>
+                                  
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
                 <!-- ========== 證書結束 ========== -->
                 
                 <!-- 底部說明 -->
