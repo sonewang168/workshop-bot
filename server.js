@@ -9,8 +9,17 @@ require('dotenv').config();
 const app = express();
 app.use(cors());
 
-// 增加 body size 限制（支援大型 Base64 圖片）
-app.use(express.json({ limit: '50mb' }));
+// 注意：express.json() 要排除 LINE webhook 路徑
+// LINE SDK 需要 raw body 來驗證簽章
+app.use((req, res, next) => {
+  if (req.path === '/webhook') {
+    // LINE webhook 不用 express.json()，讓 LINE SDK middleware 處理
+    next();
+  } else {
+    // 其他路由使用 JSON parser（支援大型 Base64）
+    express.json({ limit: '50mb' })(req, res, next);
+  }
+});
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // ==================== Together AI 設定 ====================
@@ -1659,7 +1668,6 @@ async function handlePostback(event) {
 }
 
 // ==================== API 端點 ====================
-app.use(express.json());
 app.get('/api/events', async (req, res) => { try { res.json(await getEvents()); } catch (e) { res.status(500).json({ error: e.message }); } });
 app.post('/api/events', async (req, res) => { try { res.json(await addEvent(req.body)); } catch (e) { res.status(500).json({ error: e.message }); } });
 app.put('/api/events/:id', async (req, res) => { try { await updateEvent(req.params.id, req.body); res.json({ success: true }); } catch (e) { res.status(500).json({ error: e.message }); } });
@@ -2761,9 +2769,6 @@ app.post('/api/certificate/send-all', async (req, res) => {
         };
         
         const colors = styleColors[styleInfo.style] || styleColors['典雅專業'];
-        
-        // 檢查是否有 Base64 背景
-        const hasAiBg = bgBase64 && bgBase64.startsWith('data:');
         
         // 直接在郵件中嵌入精美證書
         if (resend) {
